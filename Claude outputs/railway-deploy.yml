@@ -1,0 +1,65 @@
+name: Deploy to Railway
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: railway-deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # main 브랜치에 push되면 먼저 테스트/타입체크로 검증한 뒤에만 배포를 진행합니다.
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.4.1 # package.json의 packageManager 버전과 동일하게 맞춤
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm run check # tsc --noEmit
+
+      - run: pnpm test # vitest run
+
+  deploy:
+    needs: verify
+    runs-on: ubuntu-latest
+    # Railway CLI가 이미 설치되어 있는 공식 이미지를 사용 (별도 설치 스텝 불필요)
+    container: ghcr.io/railwayapp/cli:latest
+    env:
+      # 방법 A (권장, 더 간단함): Railway 대시보드 → 프로젝트 Settings → Tokens에서
+      # 만든 "Project Token"을 RAILWAY_TOKEN 시크릿에 넣으세요.
+      # 프로젝트+환경에 이미 스코프되어 있어서 아래 RAILWAY_PROJECT_ID가 없어도 동작합니다.
+      RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+
+      # 방법 B: 계정 단위 토큰(Account Token, RAILWAY_API_TOKEN)을 쓰는 경우에만 필요합니다.
+      # 이 경우 RAILWAY_TOKEN은 비워두고, 아래 두 값을 채우세요.
+      RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+      RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
+
+      # 프로젝트에 서비스가 하나뿐이면 비워둬도 됩니다. 여러 개면 서비스 이름을 넣으세요.
+      SERVICE: ${{ vars.RAILWAY_SERVICE_NAME }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Link Railway project (계정 토큰 사용 시에만 실행)
+        if: env.RAILWAY_TOKEN == '' && env.RAILWAY_API_TOKEN != ''
+        run: |
+          railway link --project "$RAILWAY_PROJECT_ID" --environment production
+
+      - name: Deploy to Railway
+        run: |
+          if [ -n "$SERVICE" ]; then
+            railway up --service "$SERVICE" --detach
+          else
+            railway up --detach
+          fi

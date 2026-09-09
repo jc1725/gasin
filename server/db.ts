@@ -477,49 +477,82 @@ export async function recordCollectedPriceItems(items: CollectedPriceInput[]) {
           if (item.inStock && effectivePrice > 0) alertProductIds.add(legacySearchProduct.id);
           continue;
         }
-        const [created] = await tx.insert(products).values({
-          externalProductId: collectionKey,
-          name: collectionName,
-          imageUrl: item.imageUrl?.trim() ?? "",
-          affiliateUrl: collectedExactSkuUrl,
-          categoryName: item.pageType || null,
-          familyKey: collectionFamilyKey,
-          variantLabel: collectedOptionIsCompatible ? optionName ?? collectionVariant.variantLabel ?? "가신 수집기 상품" : null,
-          unitPrice: collectedOptionIsCompatible ? collectionVariant.unitPrice : null,
-          unitLabel: collectedOptionIsCompatible ? capacityText ?? collectionVariant.unitLabel : null,
-          quantity: collectedOptionIsCompatible ? quantity : null,
-          packSize: collectedOptionIsCompatible ? packSize : null,
-          optionMetadataSource: "collection",
-          trackingPriority: "normal",
-          deepLinkUrl: null,
-          deepLinkStatus: "pending",
-          deepLinkFailureReason: null,
-          deepLinkUpdatedAt: null,
-          lastViewedAt: null,
-          refreshState: "fresh",
-          lastRefreshReason: item.inStock ? "가신 수집기 자동 등록" : "가신 수집기 품절 관측",
-          currentPrice: effectivePrice,
-          wowMemberPrice: effectivePrice || null,
-          wowMemberPriceObservedAt: effectivePrice > 0 ? item.collectedAt : null,
-          lowestPrice: effectivePrice,
-          inStock: item.inStock,
-          source: "collection",
-          isRocket: false,
-          isFreeShipping: false,
-          isActive: true,
-          firstSeenAt: item.collectedAt,
-          lastSeenAt: item.collectedAt,
-        }).$returningId();
-          if (created?.id) {
+        let created: { id: number } | undefined;
+        try {
+          [created] = await tx.insert(products).values({
+            externalProductId: collectionKey,
+            name: collectionName,
+            imageUrl: item.imageUrl?.trim() ?? "",
+            affiliateUrl: collectedExactSkuUrl,
+            categoryName: item.pageType || null,
+            familyKey: collectionFamilyKey,
+            variantLabel: collectedOptionIsCompatible ? optionName ?? collectionVariant.variantLabel ?? "가신 수집기 상품" : null,
+            unitPrice: collectedOptionIsCompatible ? collectionVariant.unitPrice : null,
+            unitLabel: collectedOptionIsCompatible ? capacityText ?? collectionVariant.unitLabel : null,
+            quantity: collectedOptionIsCompatible ? quantity : null,
+            packSize: collectedOptionIsCompatible ? packSize : null,
+            optionMetadataSource: "collection",
+            trackingPriority: "normal",
+            deepLinkUrl: null,
+            deepLinkStatus: "pending",
+            deepLinkFailureReason: null,
+            deepLinkUpdatedAt: null,
+            lastViewedAt: null,
+            refreshState: "fresh",
+            lastRefreshReason: item.inStock ? "가신 수집기 자동 등록" : "가신 수집기 품절 관측",
+            currentPrice: effectivePrice,
+            wowMemberPrice: effectivePrice || null,
+            wowMemberPriceObservedAt: effectivePrice > 0 ? item.collectedAt : null,
+            lowestPrice: effectivePrice,
+            inStock: item.inStock,
+            source: "collection",
+            isRocket: false,
+            isFreeShipping: false,
+            isActive: true,
+            firstSeenAt: item.collectedAt,
+            lastSeenAt: item.collectedAt,
+          }).$returningId();
+        } catch (error) {
+          // 같은 상품을 다른 /api/collect 요청(동시 배치 전송, 수동 동기화 + 5분
+          // 자동 동기화 겹침 등)이 이 트랜잭션보다 먼저 커밋해 externalProductId
+          // 유니크 제약을 위반한 경우입니다. 전체 배치를 500으로 실패시키지 않고
+          // 방금 생성된 행을 찾아 최신 관측치로 반영한 뒤 계속 진행합니다.
+          const isDuplicateKey = (error as { code?: string; errno?: number } | null)?.code === "ER_DUP_ENTRY"
+            || (error as { code?: string; errno?: number } | null)?.errno === 1062;
+          if (!isDuplicateKey) throw error;
+          const [raced] = await tx.select().from(products).where(eq(products.externalProductId, collectionKey)).limit(1);
+          if (!raced) throw error; // 예상치 못한 상태이면 원래 오류를 그대로 전파합니다.
+          const racedLatestObservationAt = raced.wowMemberPriceObservedAt ?? raced.lastSeenAt;
+          if (effectivePrice > 0 && item.collectedAt.getTime() > racedLatestObservationAt.getTime()) {
+            const priceChanged = raced.currentPrice !== effectivePrice;
+            await tx.update(products).set({
+              currentPrice: effectivePrice,
+              lowestPrice: raced.lowestPrice > 0 ? Math.min(raced.lowestPrice, effectivePrice) : effectivePrice,
+              inStock: item.inStock,
+              lastSeenAt: item.collectedAt,
+              ...(item.inStock ? { wowMemberPrice: effectivePrice, wowMemberPriceObservedAt: item.collectedAt } : {}),
+            }).where(eq(products.id, raced.id));
+            if (priceChanged) {
+              await tx.insert(priceHistory).values({ productId: raced.id, price: effectivePrice, recordedAt: item.collectedAt });
+              productsSummary.priceHistoryAdded += 1;
+            }
+            if (item.inStock && effectivePrice > 0) alertProductIds.add(raced.id);
+          } else {
+            await tx.update(products).set({ lastSeenAt: item.collectedAt }).where(eq(products.id, raced.id));
+          }
+          productsSummary.updated += 1;
+          continue;
+        }
+        if (created?.id) {
           if (item.inStock && effectivePrice > 0) pendingDeepLinkProductIds.add(created.id);
           if (effectivePrice > 0) {
             await tx.insert(priceHistory).values({ productId: created.id, price: effectivePrice, recordedAt: item.collectedAt });
             productsSummary.priceHistoryAdded += 1;
             alertProductIds.add(created.id);
           }
-            await supersedeSearchSkusWithCollectorObservation(tx, created.id, collectionKey);
-            await applyPageSoldOutToUnverifiedSearchSkus(tx, item, collectionKey);
-          }
+          await supersedeSearchSkusWithCollectorObservation(tx, created.id, collectionKey);
+          await applyPageSoldOutToUnverifiedSearchSkus(tx, item, collectionKey);
+        }
         productsSummary.created += 1;
         continue;
       }
