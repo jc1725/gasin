@@ -1,0 +1,1 @@
+ALTER TABLE `products` MODIFY COLUMN `externalProductId` varchar(80) NOT NULL;

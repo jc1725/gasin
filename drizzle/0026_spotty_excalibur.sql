@@ -1,0 +1,1 @@
+ALTER TABLE `syncRuns` MODIFY COLUMN `jobType` enum('goldbox','bestcategory','price','retention','drive','search','deeplink','collection') NOT NULL;

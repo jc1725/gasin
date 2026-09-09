@@ -1,0 +1,2 @@
+ALTER TABLE `products` ADD `trackingPriority` enum('low','normal','high') DEFAULT 'normal' NOT NULL;--> statement-breakpoint
+CREATE INDEX `products_trackingPriority_lastSeenAt_idx` ON `products` (`trackingPriority`,`lastSeenAt`);

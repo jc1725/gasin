@@ -1,0 +1,347 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+:root {
+  --gasyn-primary: #368f63;
+  --gasyn-primary-soft: #d9f0e2;
+  --gasyn-primary-text: #2b7c53;
+  --gasyn-tint: #edf8f0;
+  --primary: oklch(0.47 0.13 148);
+  --primary-foreground: oklch(0.98 0.01 148);
+  --sidebar-primary: oklch(0.47 0.13 148);
+  --sidebar-primary-foreground: oklch(0.98 0.01 148);
+  --chart-1: oklch(0.72 0.14 148);
+  --chart-2: oklch(0.62 0.15 148);
+  --chart-3: oklch(0.52 0.14 148);
+  --chart-4: oklch(0.42 0.12 148);
+  --chart-5: oklch(0.32 0.09 148);
+  --radius: 0.85rem;
+  --background: oklch(0.98 0.01 135);
+  --foreground: oklch(0.22 0.03 145);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.22 0.03 145);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.22 0.03 145);
+  --secondary: oklch(0.96 0.02 140);
+  --secondary-foreground: oklch(0.32 0.06 145);
+  --muted: oklch(0.96 0.01 135);
+  --muted-foreground: oklch(0.55 0.03 145);
+  --accent: oklch(0.92 0.05 145);
+  --accent-foreground: oklch(0.27 0.07 145);
+  --destructive: oklch(0.577 0.245 27.325);
+  --destructive-foreground: oklch(0.985 0 0);
+  --border: oklch(0.90 0.02 140);
+  --input: oklch(0.90 0.02 140);
+  --ring: oklch(0.55 0.15 148);
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.235 0.015 65);
+  --sidebar-accent: oklch(0.967 0.001 286.375);
+  --sidebar-accent-foreground: oklch(0.141 0.005 285.823);
+  --sidebar-border: oklch(0.92 0.004 286.32);
+  --sidebar-ring: oklch(0.623 0.214 259.815);
+}
+
+.dark {
+  --gasyn-primary: #58bd7d;
+  --gasyn-primary-soft: #1d4a2c;
+  --gasyn-primary-text: #9de5b6;
+  --gasyn-tint: #152d1d;
+  --primary: oklch(0.72 0.15 148);
+  --primary-foreground: oklch(0.18 0.04 148);
+  --sidebar-primary: oklch(0.72 0.15 148);
+  --sidebar-primary-foreground: oklch(0.18 0.04 148);
+  --chart-1: oklch(0.78 0.13 148);
+  --chart-2: oklch(0.68 0.15 148);
+  --chart-3: oklch(0.58 0.14 148);
+  --chart-4: oklch(0.48 0.12 148);
+  --chart-5: oklch(0.38 0.09 148);
+  --background: oklch(0.141 0.005 285.823);
+  --foreground: oklch(0.85 0.005 65);
+  --card: oklch(0.21 0.006 285.885);
+  --card-foreground: oklch(0.85 0.005 65);
+  --popover: oklch(0.21 0.006 285.885);
+  --popover-foreground: oklch(0.85 0.005 65);
+  --secondary: oklch(0.24 0.006 286.033);
+  --secondary-foreground: oklch(0.7 0.005 65);
+  --muted: oklch(0.274 0.006 286.033);
+  --muted-foreground: oklch(0.705 0.015 286.067);
+  --accent: oklch(0.274 0.006 286.033);
+  --accent-foreground:  oklch(0.92 0.005 65);
+  --destructive: oklch(0.704 0.191 22.216);
+  --destructive-foreground: oklch(0.985 0 0);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.488 0.243 264.376);
+  --sidebar: oklch(0.21 0.006 285.885);
+  --sidebar-foreground: oklch(0.85 0.005 65);
+  --sidebar-accent: oklch(0.274 0.006 286.033);
+  --sidebar-accent-foreground:  oklch(0.985 0 0);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.488 0.243 264.376);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-family: "Noto Sans KR", "Apple SD Gothic Neo", sans-serif;
+  }
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  [type="button"]:not(:disabled),
+  [type="submit"]:not(:disabled),
+  [type="reset"]:not(:disabled),
+  a[href],
+  select:not(:disabled),
+  input[type="checkbox"]:not(:disabled),
+  input[type="radio"]:not(:disabled) {
+    @apply cursor-pointer;
+  }
+}
+
+/* 민트 그린을 기본 브랜드 색상으로 고정한다. */
+html .bg-\[\#176b3a\] { background-color: var(--gasyn-primary) !important; }
+html .text-\[\#176b3a\] { color: var(--gasyn-primary) !important; }
+html .text-\[\#308154\] { color: var(--gasyn-primary-text) !important; }
+html .border-\[\#176b3a\] { border-color: var(--gasyn-primary) !important; }
+html .ring-\[\#176b3a\] { --tw-ring-color: var(--gasyn-primary) !important; }
+html .bg-\[\#e5f2e7\], html .bg-\[\#e7f3e9\] { background-color: var(--gasyn-primary-soft) !important; }
+html .bg-\[\#f4fbf5\] { background-color: var(--gasyn-tint) !important; }
+
+@layer components {
+  /**
+   * Custom container utility that centers content and adds responsive padding.
+   *
+   * This overrides Tailwind's default container behavior to:
+   * - Auto-center content (mx-auto)
+   * - Add responsive horizontal padding
+   * - Set max-width for large screens
+   *
+   * Usage: <div className="container">...</div>
+   *
+   * For custom widths, use max-w-* utilities directly:
+   * <div className="max-w-6xl mx-auto px-4">...</div>
+   */
+  .container {
+    width: 100%;
+    margin-left: auto;
+    margin-right: auto;
+    padding-left: 1rem; /* 16px - mobile padding */
+    padding-right: 1rem;
+  }
+
+  .flex {
+    min-height: 0;
+    min-width: 0;
+  }
+
+  @media (min-width: 640px) {
+    .container {
+      padding-left: 1.5rem; /* 24px - tablet padding */
+      padding-right: 1.5rem;
+    }
+  }
+
+  @media (min-width: 1024px) {
+    .container {
+      padding-left: 2rem; /* 32px - desktop padding */
+      padding-right: 2rem;
+      max-width: 1280px; /* Standard content width */
+    }
+  }
+}
+
+/* User-selectable dark theme: preserve Gasyn green while raising contrast on mobile. */
+.dark {
+  color-scheme: dark;
+}
+
+.dark body {
+  background: #0d1711;
+  color: #e7f1e9;
+}
+
+.dark [class*="bg-[#f6f8f4]"] {
+  background-color: #0d1711 !important;
+}
+
+.dark [class*="bg-white"] {
+  background-color: #17271c !important;
+}
+
+.dark [class*="text-[#102016]"] {
+  color: #e7f1e9 !important;
+}
+
+.dark [class*="text-[#778679]"],
+.dark [class*="text-[#718071]"],
+.dark [class*="text-[#829184]"],
+.dark [class*="text-[#7a877c]"] {
+  color: #a8b9ad !important;
+}
+
+.dark [class*="border-[#dbe7da]"],
+.dark [class*="ring-[#e2ebe1]"],
+.dark [class*="ring-[#dfe9e0]"] {
+  border-color: #2d4935 !important;
+  --tw-ring-color: #2d4935 !important;
+}
+
+.dark input,
+.dark textarea,
+.dark select {
+  color: #e7f1e9;
+}
+
+.dark input::placeholder,
+.dark textarea::placeholder {
+  color: #829c89;
+}
+
+/* 고정 색상 유틸리티를 쓰는 화면도 다크 배경 위에서 WCAG 대비를 유지합니다. */
+.dark [class*="text-[#102016]"],
+.dark [class*="text-[#132018]"],
+.dark [class*="text-[#1d3b25]"],
+.dark [class*="text-[#1f3424]"],
+.dark [class*="text-[#25362a]"],
+.dark [class*="text-[#28462f]"],
+.dark [class*="text-[#34322d]"] {
+  color: #f1f7f2 !important;
+}
+
+.dark [class*="text-[#42624b]"],
+.dark [class*="text-[#5d7462]"],
+.dark [class*="text-[#607765]"],
+.dark [class*="text-[#608068]"],
+.dark [class*="text-[#6e806f]"],
+.dark [class*="text-[#718071]"],
+.dark [class*="text-[#778679]"],
+.dark [class*="text-[#7a877c]"],
+.dark [class*="text-[#7f8f82]"],
+.dark [class*="text-[#829184]"],
+.dark [class*="text-[#858481]"],
+.dark [class*="text-[#8b978d]"] {
+  color: #c7d8cb !important;
+}
+
+.dark [class*="text-[#176b3a]"],
+.dark [class*="text-[#287245]"],
+.dark [class*="text-[#308154]"],
+.dark [class*="text-[#118245]"],
+.dark [class*="text-[#2d7d4d]"] {
+  color: #9fe7b8 !important;
+}
+
+.dark [class*="text-[#8a600e]"],
+.dark [class*="text-[#94601a]"],
+.dark [class*="text-[#9a6a16]"] {
+  color: #f4d27a !important;
+}
+
+.dark [class*="text-[#a44c45]"] {
+  color: #ffb5ab !important;
+}
+
+.dark [class*="bg-[#f4fbf5]"],
+.dark [class*="bg-[#f7fbf7]"],
+.dark [class*="bg-[#eff9f1]"],
+.dark [class*="bg-[#eaf6ec]"],
+.dark [class*="bg-[#e5f2e7]"],
+.dark [class*="bg-[#e7f3e9]"] {
+  background-color: #173522 !important;
+}
+
+.dark [class*="bg-[#fffaf0]"],
+.dark [class*="bg-[#fff0c7]"],
+.dark [class*="bg-[#fff5d9]"] {
+  background-color: #382f17 !important;
+}
+
+.dark [class*="bg-[#eef4ff]"],
+.dark [class*="bg-[#edf5ff]"] {
+  background-color: #182e49 !important;
+}
+
+.dark [class*="border-[#cfe3d2]"],
+.dark [class*="border-[#d6e3d7]"],
+.dark [class*="border-[#d9e6d9]"],
+.dark [class*="border-[#e4ece5]"],
+.dark [class*="ring-[#e2ebe1]"],
+.dark [class*="ring-[#dfe9e0]"] {
+  border-color: #3b6045 !important;
+  --tw-ring-color: #3b6045 !important;
+}
+
+/* 쇼핑 앱 가독성 기준: 모바일에서도 보조 정보가 읽히도록 작은 포인트를 한 단계 올립니다. */
+#root .text-\[10px\] {
+  font-size: 0.8125rem !important;
+  line-height: 1.35rem !important;
+}
+
+#root .text-\[11px\] {
+  font-size: 0.875rem !important;
+  line-height: 1.45rem !important;
+}
+
+#root .text-\[12px\] {
+  font-size: 0.9375rem !important;
+  line-height: 1.5rem !important;
+}
+
+#root .text-\[13px\] {
+  font-size: 1rem !important;
+  line-height: 1.55rem !important;
+}
+
+#root .text-xs {
+  font-size: 0.875rem !important;
+  line-height: 1.4rem !important;
+}
+
+#root .text-sm {
+  font-size: 1rem !important;
+  line-height: 1.55rem !important;
+}

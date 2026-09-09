@@ -1,0 +1,17 @@
+{
+  "name": "가신 | 가격추적",
+  "short_name": "가신",
+  "description": "쿠팡 파트너스 상품의 가격 이력을 추적하는 가신 웹앱",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f6f8f4",
+  "theme_color": "#176B3A",
+  "icons": [
+    {
+      "src": "/manus-storage/gasyn-text-shortcut-icon-preview_1bf92205.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

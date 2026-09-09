@@ -1,0 +1,2 @@
+ALTER TABLE `scheduleSettings` MODIFY COLUMN `jobKey` enum('goldbox','bestcategory','price','retention','lighthouse') NOT NULL;--> statement-breakpoint
+ALTER TABLE `syncRuns` MODIFY COLUMN `jobType` enum('goldbox','bestcategory','price','retention','drive','search','deeplink','collection','lighthouse') NOT NULL;

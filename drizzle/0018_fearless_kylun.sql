@@ -1,0 +1,1 @@
+ALTER TABLE `productCandidates` MODIFY COLUMN `source` enum('csv_upload','drive_csv','missing_search') NOT NULL;

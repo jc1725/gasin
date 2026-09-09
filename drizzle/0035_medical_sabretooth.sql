@@ -1,0 +1,1 @@
+ALTER TABLE `products` MODIFY COLUMN `refreshState` enum('fresh','deferred','awaiting_collection','not_in_goldbox') NOT NULL DEFAULT 'fresh';

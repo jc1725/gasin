@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="ko">
+
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1" />
+    <!--app-head-->
+    <meta name="theme-color" content="#176B3A" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" type="image/png" href="/manus-storage/gasyn-text-shortcut-icon-preview_1bf92205.png" />
+    <link rel="apple-touch-icon" href="/manus-storage/gasyn-text-shortcut-icon-preview_1bf92205.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  </head>
+
+  <body>
+    <script>
+      // KakaoTalk and other in-app browsers may omit the Notification global.
+      // Install a denied-permission shim before any cached application bundle runs.
+      if (typeof window !== "undefined" && typeof window.Notification === "undefined") {
+        const UnsupportedNotification = function () {};
+        UnsupportedNotification.permission = "denied";
+        UnsupportedNotification.requestPermission = () => Promise.resolve("denied");
+        window.Notification = UnsupportedNotification;
+      }
+    </script>
+    <div id="root"><!--app-html--></div>
+    <script type="module" src="/src/entry-client.tsx"></script>
+    <script
+      defer
+      src="%VITE_ANALYTICS_ENDPOINT%/umami"
+      data-website-id="%VITE_ANALYTICS_WEBSITE_ID%"></script>
+  </body>
+
+</html>

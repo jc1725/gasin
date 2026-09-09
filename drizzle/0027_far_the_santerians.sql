@@ -1,0 +1,1 @@
+ALTER TABLE `products` MODIFY COLUMN `source` enum('goldbox','search','bestcategory','collection') NOT NULL;

@@ -1,0 +1,286 @@
+{
+  "version": "7",
+  "dialect": "mysql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "5",
+      "when": 1786687165366,
+      "tag": "0000_powerful_lockheed",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "5",
+      "when": 1786689443467,
+      "tag": "0001_unique_satana",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1786694055761,
+      "tag": "0002_unusual_nightcrawler",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "5",
+      "when": 1786694337322,
+      "tag": "0003_right_peter_parker",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "5",
+      "when": 1786694709665,
+      "tag": "0004_chubby_venom",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "5",
+      "when": 1786695296124,
+      "tag": "0005_perpetual_silvermane",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "5",
+      "when": 1786695948764,
+      "tag": "0006_nasty_karma",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "5",
+      "when": 1786696127695,
+      "tag": "0007_lumpy_microbe",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "5",
+      "when": 1786696566499,
+      "tag": "0008_certain_tigra",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "5",
+      "when": 1786697162558,
+      "tag": "0009_reflective_multiple_man",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "5",
+      "when": 1786699370987,
+      "tag": "0010_dashing_mother_askani",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "5",
+      "when": 1786699734192,
+      "tag": "0011_dashing_snowbird",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "5",
+      "when": 1786711654342,
+      "tag": "0012_spotty_blue_marvel",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "5",
+      "when": 1786715044899,
+      "tag": "0013_loving_ricochet",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "5",
+      "when": 1786779596141,
+      "tag": "0014_worthless_black_queen",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "5",
+      "when": 1786872484301,
+      "tag": "0015_light_lionheart",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "5",
+      "when": 1786876669504,
+      "tag": "0016_round_thunderbolt_ross",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "5",
+      "when": 1786976582681,
+      "tag": "0017_cute_luke_cage",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "5",
+      "when": 1786982065997,
+      "tag": "0018_fearless_kylun",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "5",
+      "when": 1787027851334,
+      "tag": "0019_long_prodigy",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "5",
+      "when": 1787030555593,
+      "tag": "0020_colorful_rhodey",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "5",
+      "when": 1787036376927,
+      "tag": "0021_messy_star_brand",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "5",
+      "when": 1787038325769,
+      "tag": "0022_strange_proudstar",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "5",
+      "when": 1787039584328,
+      "tag": "0023_known_zzzax",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "5",
+      "when": 1787041064619,
+      "tag": "0024_glorious_magneto",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "5",
+      "when": 1787062737708,
+      "tag": "0025_ancient_sharon_ventura",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "5",
+      "when": 1787063363846,
+      "tag": "0026_spotty_excalibur",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "5",
+      "when": 1787064657675,
+      "tag": "0027_far_the_santerians",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "5",
+      "when": 1787106348152,
+      "tag": "0028_quiet_revanche",
+      "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "5",
+      "when": 1787620740427,
+      "tag": "0029_messy_black_tarantula",
+      "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "5",
+      "when": 1787630550637,
+      "tag": "0030_secret_mercury",
+      "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "5",
+      "when": 1787645367066,
+      "tag": "0031_cheerful_multiple_man",
+      "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "5",
+      "when": 1787653039337,
+      "tag": "0032_ambiguous_the_hand",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "5",
+      "when": 1787653431813,
+      "tag": "0033_mature_tombstone",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "5",
+      "when": 1787704494505,
+      "tag": "0034_left_steve_rogers",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "5",
+      "when": 1787750562814,
+      "tag": "0035_medical_sabretooth",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "5",
+      "when": 1787794379189,
+      "tag": "0036_tidy_vapor",
+      "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "5",
+      "when": 1787801800296,
+      "tag": "0037_amusing_prowler",
+      "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "5",
+      "when": 1788276295614,
+      "tag": "0038_lovely_captain_universe",
+      "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "5",
+      "when": 1788536371899,
+      "tag": "0039_jazzy_the_hand",
+      "breakpoints": true
+    }
+  ]
+}
