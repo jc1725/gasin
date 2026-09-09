@@ -50,7 +50,7 @@ function buildHeadTags(head: HeadMeta, requestPath: string) {
     `<meta property="og:title" content="${socialTitle}" />`,
     `<meta property="og:description" content="${socialDescription}" />`,
     canonicalUrl ? `<meta property="og:url" content="${escapeHtml(canonicalUrl)}" />` : "",
-    `<meta property="og:image" content="${SITE_URL}/manus-storage/gasyn-text-shortcut-icon-preview_1bf92205.png" />`,
+    `<meta property="og:image" content="${SITE_URL}/gasyn-icon.png" />`,
     `<meta name="twitter:card" content="summary" />`,
     `<meta name="twitter:title" content="${socialTitle}" />`,
     `<meta name="twitter:description" content="${socialDescription}" />`,

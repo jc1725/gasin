@@ -26,7 +26,7 @@ export async function sendTargetPricePushNotification(input: TargetPricePushInpu
   const payload = JSON.stringify({
     title: "가신 목표가 도달",
     body: `${input.productName}\n현재 ${input.currentPrice.toLocaleString("ko-KR")}원 · 목표 ${input.targetPrice.toLocaleString("ko-KR")}원`,
-    icon: "/manus-storage/gasyn-text-shortcut-icon-preview_1bf92205.png",
+    icon: "/gasyn-icon.png",
     tag: `gasyn-target-${input.productId}`,
     url: `${ENV.appBaseUrl}/product/${input.productId}`,
   });

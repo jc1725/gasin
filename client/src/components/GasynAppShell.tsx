@@ -31,7 +31,7 @@ export default function GasynAppShell({ children }: { children: ReactNode }) {
       <header className="sticky top-0 z-40 border-b border-[#dbe7da]/85 bg-[#f6f8f4]/90 backdrop-blur-xl">
         <div className="mx-auto flex h-15 max-w-2xl items-center justify-between px-5">
           <Link href="/" className="flex items-center gap-2" aria-label="가신 홈으로 이동">
-            <img src="/manus-storage/gasyn-text-shortcut-icon-preview_1bf92205.png" alt="가신" className="size-8 rounded-xl shadow-[0_6px_18px_rgba(23,107,58,.23)]" />
+            <img src="/gasyn-icon.png" alt="가신" className="size-8 rounded-xl shadow-[0_6px_18px_rgba(23,107,58,.23)]" />
             <div className="leading-none"><strong className="text-lg tracking-[-0.07em]">가신</strong><span className="ml-1.5 text-[10px] font-semibold tracking-tight text-[#608068]">가격의 신호</span></div>
           </Link>
           <div className="flex items-center gap-2">

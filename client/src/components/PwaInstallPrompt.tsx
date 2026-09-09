@@ -133,7 +133,7 @@ export default function PwaInstallPrompt({ persistent = false, inline = false }:
 
   const content = <>
     <div className="flex items-start gap-3">
-      <img src="/manus-storage/gasyn-text-shortcut-icon-preview_1bf92205.png" alt="가신" className="size-11 shrink-0 rounded-xl" />
+      <img src="/gasyn-icon.png" alt="가신" className="size-11 shrink-0 rounded-xl" />
       <div className="min-w-0 flex-1"><p className="text-sm font-extrabold text-[#1d3b25] dark:text-white">가신을 홈 화면에 설치하세요</p><p className="mt-1 text-[11px] leading-4 text-[#607765] dark:text-[#b6d9bd]">앱처럼 빠르게 열고 가격 변화를 확인할 수 있습니다.</p></div>
       {!inline ? <button type="button" onClick={dismiss} className="grid size-8 shrink-0 place-items-center rounded-full text-[#718071] transition hover:bg-[#f1f6f1]" aria-label="설치 안내 닫기"><X className="size-4" /></button> : null}
     </div>

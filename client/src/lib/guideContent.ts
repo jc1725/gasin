@@ -48,7 +48,7 @@ export const siteOrganizationSchema = {
   "@type": "Organization",
   name: "가신",
   url: "https://gasin.shop",
-  logo: "https://gasin.shop/manus-storage/gasyn-text-shortcut-icon-preview_1bf92205.png",
+  logo: "https://gasin.shop/gasyn-icon.png",
   description: "쿠팡 상품의 가격 흐름과 최근 수집 관측가를 비교해 가격을 해독하는 가격 추적 서비스",
 };
 

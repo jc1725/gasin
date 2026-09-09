@@ -8,7 +8,7 @@
   "theme_color": "#176B3A",
   "icons": [
     {
-      "src": "/manus-storage/gasyn-text-shortcut-icon-preview_1bf92205.png",
+      "src": "/gasyn-icon.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any maskable"

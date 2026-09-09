@@ -2,7 +2,7 @@ import { buildGuideFaqSchema, siteOrganizationSchema, siteWebApplicationSchema }
 import { buildMethodologyFaqSchema, methodologyWebPageSchema } from "./methodologyContent";
 
 export const SITE_URL = "https://gasin.shop";
-export const SITE_OG_IMAGE = "/manus-storage/gasyn-text-shortcut-icon-preview_1bf92205.png";
+export const SITE_OG_IMAGE = "/gasyn-icon.png";
 
 export type PageMeta = {
   title: string;
