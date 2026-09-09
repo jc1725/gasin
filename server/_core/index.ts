@@ -14,7 +14,7 @@ import { registerPriceAlertRoutes } from "../priceAlertRoutes";
 import { registerScheduledJobRoutes } from "../scheduledJobs";
 import { registerCollectionRoutes } from "../collectionRoutes";
 import { registerWebPushConfigRoutes } from "../webPushConfigRoutes";
-import { registerExternalPriceRefreshRoute } from "../externalPriceRefresh";
+import { registerExternalPriceRefreshRoute, registerExternalFavoritesRefreshRoute } from "../externalPriceRefresh";
 import { buildProductSitemapXml, buildSitemapIndexXml, buildStaticSitemapXml } from "../seoSitemap";
 import { registerImageProxy } from "../imageProxy";
 import { registerLighthouseAuditRoute } from "../lighthouseAudit";
@@ -59,6 +59,7 @@ async function startServer() {
   registerPriceAlertRoutes(app);
   registerScheduledJobRoutes(app);
   registerExternalPriceRefreshRoute(app);
+  registerExternalFavoritesRefreshRoute(app);
   registerLighthouseAuditRoute(app);
   registerCollectionRoutes(app);
   registerWebPushConfigRoutes(app);

@@ -304,10 +304,35 @@ async function transferFavoritesAndCategoryEntries(tx: any, sourceProductId: num
 }
 
 /**
+ * 검색 API 매칭 실패로 대기 중이던(search 출처, refreshState가 awaiting_collection·
+ * deferred인) 상품이 가신 수집기 관측으로 실제 해소되는 순간을 "가격 추적 성과
+ * 모니터링" 대시보드에 즉시 기록한다. 이 기록이 없으면 다음 예약 검색 재확인
+ * 배치가 같은 상품을 우연히 다시 처리할 때까지 성과 통계에 반영되지 않아
+ * "보류 SKU 평균 해소" 시간이 실제 해소 시점보다 부풀려져 표시된다.
+ */
+async function recordCollectorResolutionMetric(
+  tx: any,
+  before: { id: number; source: string; refreshState: string } | undefined,
+  occurredAt: Date,
+) {
+  if (!before || before.source !== "search") return;
+  if (before.refreshState !== "awaiting_collection" && before.refreshState !== "deferred") return;
+  await tx.insert(priceTrackingMetrics).values({
+    productId: before.id,
+    runId: null,
+    source: "search",
+    outcome: "collector_resolved",
+    apiCalls: 0,
+    durationMs: 0,
+    occurredAt,
+  });
+}
+
+/**
  * 수집기가 실제로 확인한 정확 SKU로 대기·실패 검색 SKU의 사용자 연결만 이관하고,
  * 기존 가격 이력은 원본 SKU 감사 이력으로 남긴 뒤 원본 행을 비활성화한다.
  */
-async function supersedeSearchSkusWithCollectorObservation(tx: any, collectorProductId: number, collectorSku: string) {
+async function supersedeSearchSkusWithCollectorObservation(tx: any, collectorProductId: number, collectorSku: string, occurredAt: Date) {
   const [pageProductId, , collectorVendorItemId] = collectorSku.split(":");
   if (!pageProductId || !collectorVendorItemId) return 0;
   const candidates = await tx.select().from(products).where(and(
@@ -319,6 +344,7 @@ async function supersedeSearchSkusWithCollectorObservation(tx: any, collectorPro
   const superseded = candidates.filter((candidate: CollectorPriorityCandidate) => isSupersededSearchSkuForCollector(candidate, collectorSku));
 
   for (const source of superseded) {
+    await recordCollectorResolutionMetric(tx, source, occurredAt);
     await transferFavoritesAndCategoryEntries(tx, source.id, collectorProductId);
     await Promise.all([
       tx.update(userConfirmedPrices).set({ productId: collectorProductId }).where(eq(userConfirmedPrices.productId, source.id)),
@@ -435,6 +461,7 @@ export async function recordCollectedPriceItems(items: CollectedPriceInput[]) {
           )).limit(2))[0]
           : undefined;
         if (legacySearchProduct) {
+          await recordCollectorResolutionMetric(tx, legacySearchProduct, item.collectedAt);
           const legacyMetadata = {
             externalProductId: collectionKey,
             name: collectionName || legacySearchProduct.name,
@@ -471,7 +498,7 @@ export async function recordCollectedPriceItems(items: CollectedPriceInput[]) {
               productsSummary.priceHistoryAdded += 1;
             }
           }
-          await supersedeSearchSkusWithCollectorObservation(tx, legacySearchProduct.id, collectionKey);
+          await supersedeSearchSkusWithCollectorObservation(tx, legacySearchProduct.id, collectionKey, item.collectedAt);
           productsSummary.updated += 1;
           if (item.inStock && effectivePrice > 0 && legacySearchProduct.deepLinkStatus === "failed") pendingDeepLinkProductIds.add(legacySearchProduct.id);
           if (item.inStock && effectivePrice > 0) alertProductIds.add(legacySearchProduct.id);
@@ -550,7 +577,7 @@ export async function recordCollectedPriceItems(items: CollectedPriceInput[]) {
             productsSummary.priceHistoryAdded += 1;
             alertProductIds.add(created.id);
           }
-          await supersedeSearchSkusWithCollectorObservation(tx, created.id, collectionKey);
+          await supersedeSearchSkusWithCollectorObservation(tx, created.id, collectionKey, item.collectedAt);
           await applyPageSoldOutToUnverifiedSearchSkus(tx, item, collectionKey);
         }
         productsSummary.created += 1;
@@ -567,6 +594,7 @@ export async function recordCollectedPriceItems(items: CollectedPriceInput[]) {
           && current.deepLinkStatus === "failed"
           && Boolean(collectedExactSkuUrl);
         if (canRecoverFailedLinkFromRetriedObservation) {
+          await recordCollectorResolutionMetric(tx, current, item.collectedAt);
           await tx.update(products).set({
             affiliateUrl: collectedExactSkuUrl,
             deepLinkStatus: "pending",
@@ -583,6 +611,7 @@ export async function recordCollectedPriceItems(items: CollectedPriceInput[]) {
         productsSummary.stale += 1;
         continue;
       }
+      await recordCollectorResolutionMetric(tx, current, item.collectedAt);
       const canReplaceMetadata = collectedOptionIsCompatible && (current.optionMetadataSource === "collection" || !current.variantLabel || !current.unitLabel || !current.quantity);
       const latestMetadata = {
         name: collectionName || current.name,
@@ -610,7 +639,7 @@ export async function recordCollectedPriceItems(items: CollectedPriceInput[]) {
       };
       if (!item.inStock || effectivePrice <= 0) {
         await tx.update(products).set(latestMetadata).where(eq(products.id, current.id));
-        await supersedeSearchSkusWithCollectorObservation(tx, current.id, collectionKey);
+        await supersedeSearchSkusWithCollectorObservation(tx, current.id, collectionKey, item.collectedAt);
         await applyPageSoldOutToUnverifiedSearchSkus(tx, item, collectionKey);
         productsSummary.updated += 1;
         continue;
@@ -620,7 +649,7 @@ export async function recordCollectedPriceItems(items: CollectedPriceInput[]) {
         currentPrice: effectivePrice,
         lowestPrice: current.lowestPrice > 0 ? Math.min(current.lowestPrice, effectivePrice) : effectivePrice,
       }).where(eq(products.id, current.id));
-      await supersedeSearchSkusWithCollectorObservation(tx, current.id, collectionKey);
+      await supersedeSearchSkusWithCollectorObservation(tx, current.id, collectionKey, item.collectedAt);
       const duplicateObservation = (await tx
         .select({ id: priceHistory.id })
         .from(priceHistory)
