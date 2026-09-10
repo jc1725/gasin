@@ -30,4 +30,12 @@ describe("administrator missing-search management", () => {
     expect(routerSource).toContain("deleteMissingSearch: adminProcedure");
     expect(routerSource).toContain("deleteMissingSearchForAdmin(input.missingSearchId)");
   });
+
+  it("offers a confirmed bulk delete-all action alongside the per-row delete", () => {
+    expect(adminSource).toContain("deleteAllMissingSearchesItems");
+    expect(adminSource).toContain("전체 삭제");
+    expect(adminSource).toContain("window.confirm(`검색 실패 이력 전체");
+    expect(routerSource).toContain("deleteAllMissingSearches: adminProcedure");
+    expect(routerSource).toContain("deleteAllMissingSearchesForAdmin()");
+  });
 });

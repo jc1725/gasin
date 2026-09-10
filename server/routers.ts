@@ -48,6 +48,7 @@ import {
   listMissingSearchesForAdmin,
   mergeDuplicateMissingSearchesForAdmin,
   deleteMissingSearchForAdmin,
+  deleteAllMissingSearchesForAdmin,
   pruneResolvedMissingSearchesForAdmin,
   listSearchEventsForAdmin,
   addMissingSearchCandidate,
@@ -526,6 +527,10 @@ export const appRouter = router({
         if (!result.deleted) throw new TRPCError({ code: "NOT_FOUND", message: "삭제할 검색 실패 이력을 찾을 수 없습니다." });
         return { success: true };
       }),
+    deleteAllMissingSearches: adminProcedure.mutation(async ({ ctx }) => {
+      requireGoogleUser(ctx.user.loginMethod);
+      return deleteAllMissingSearchesForAdmin();
+    }),
     importOptionsCsv: adminProcedure
       .input(z.object({ csvText: z.string().min(1).max(250_000) }))
       .mutation(async ({ ctx, input }) => {

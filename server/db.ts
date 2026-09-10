@@ -1572,6 +1572,14 @@ export async function deleteMissingSearchForAdmin(missingSearchId: number) {
   return { deleted };
 }
 
+/** 검색 실패 이력 전체를 한 번에 삭제한다. 검색어 자체는 다시 실패하면 새 이력으로 재집계된다. */
+export async function deleteAllMissingSearchesForAdmin() {
+  const db = await getDb();
+  if (!db) throw new Error("Database is unavailable");
+  const result = await db.delete(missingSearches);
+  return { deletedCount: getAffectedRows(result) };
+}
+
 /** 이미 저장된 활성 상품으로 결과를 보여줄 수 있는 과거 실패 이력만 정리한다. 외부 쿠팡 API는 호출하지 않는다. */
 export async function pruneResolvedMissingSearchesForAdmin(limit = 200) {
   const db = await getDb();
