@@ -140,7 +140,9 @@ export const appRouter = router({
     suspensionStatus: publicProcedure.query(({ ctx }) => sdk.getSuspensionStatus(ctx.req)),
     logout: publicProcedure.mutation(({ ctx }) => {
       const cookieOptions = getSessionCookieOptions(ctx.req);
-      ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
+      // Express deprecated passing maxAge to clearCookie (it already expires the
+      // cookie immediately on its own); omit it to silence the runtime warning.
+      ctx.res.clearCookie(COOKIE_NAME, cookieOptions);
       return {
         success: true,
       } as const;

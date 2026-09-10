@@ -51,8 +51,10 @@ describe("auth.logout", () => {
     expect(result).toEqual({ success: true });
     expect(clearedCookies).toHaveLength(1);
     expect(clearedCookies[0]?.name).toBe(COOKIE_NAME);
+    // maxAge is intentionally omitted — Express's res.clearCookie already expires
+    // the cookie immediately, and passing maxAge is deprecated as of Express 4.21+.
+    expect(clearedCookies[0]?.options).not.toHaveProperty("maxAge");
     expect(clearedCookies[0]?.options).toMatchObject({
-      maxAge: -1,
       secure: true,
       sameSite: "none",
       httpOnly: true,
