@@ -33,8 +33,8 @@ describe("deferred search price refresh job", () => {
 
   it("rechecks a safe batch and records attempts even when an exact SKU is unavailable", async () => {
     await expect(refreshDeferredSearchPrices()).resolves.toMatchObject({ processedCount: 2 });
-    expect(PRICE_REFRESH_SEARCH_BATCH_SIZE).toBe(10);
-    expect(mocks.getDeferredSearchProducts).toHaveBeenCalledWith(10);
+    expect(PRICE_REFRESH_SEARCH_BATCH_SIZE).toBe(30);
+    expect(mocks.getDeferredSearchProducts).toHaveBeenCalledWith(30);
     expect(mocks.searchCatalogSafely).toHaveBeenNthCalledWith(1, "가격 갱신 상품 A 20cm 1개", 10, { forceExternal: true, callType: "price-tracking" });
     expect(mocks.searchCatalogSafely).toHaveBeenNthCalledWith(2, "가격 갱신 상품 B", 10, { forceExternal: true, callType: "price-tracking" });
     expect(mocks.recordDeferredSearchRecheckMiss).toHaveBeenCalledWith(42, expect.stringContaining("정확 SKU"));

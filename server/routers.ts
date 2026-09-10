@@ -97,7 +97,7 @@ import { systemRouter } from "./_core/systemRouter";
 import { sdk } from "./_core/sdk";
 import { adminProcedure, protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import { getWebPushConfiguration } from "./webPushConfig";
-import { syncCollectedPriceDataForAdmin, syncCollectorMetadataForAdmin } from "./collectorSyncService";
+import { syncCollectedPriceDataForAdmin, syncCollectorMetadataForAdmin, backfillMissingOptionMetadataFromNamesForAdmin } from "./collectorSyncService";
 import { collectGoldBoxProducts } from "./scheduledJobs";
 import { classifyDeferredPriceInputs } from "./deferredPriceInput";
 import { refreshDeepLinkForExactSku } from "./deepLinkManualRefresh";
@@ -451,6 +451,10 @@ export const appRouter = router({
     syncCollectorMetadata: adminProcedure.mutation(async ({ ctx }) => {
       requireGoogleUser(ctx.user.loginMethod);
       return syncCollectorMetadataForAdmin();
+    }),
+    backfillMissingOptionMetadataFromNames: adminProcedure.mutation(async ({ ctx }) => {
+      requireGoogleUser(ctx.user.loginMethod);
+      return backfillMissingOptionMetadataFromNamesForAdmin();
     }),
     listCurrentPriceProducts: adminProcedure.query(async ({ ctx }) => {
       requireGoogleUser(ctx.user.loginMethod);

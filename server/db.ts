@@ -1352,6 +1352,7 @@ export async function upsertCoupangProduct(product: CoupangProduct, source: Prod
     variantLabel: variant.variantLabel,
     unitPrice: variant.unitPrice,
     unitLabel: variant.unitLabel,
+    quantity: variant.quantity,
     trackingPriority: source === "search" ? "low" as const : "normal" as const,
     currentPrice,
     lowestPrice: currentPrice,
@@ -1377,6 +1378,7 @@ export async function upsertCoupangProduct(product: CoupangProduct, source: Prod
       variantLabel: values.variantLabel,
       unitPrice: values.unitPrice,
       unitLabel: values.unitLabel,
+      quantity: values.quantity,
       trackingPriority: sql`CASE WHEN ${products.trackingPriority} = 'high' THEN 'high' WHEN ${values.source} = 'search' THEN 'low' ELSE 'normal' END`,
       deepLinkStatus: refreshedDeepLinkStatus,
       deepLinkFailureReason: null,
@@ -2248,6 +2250,41 @@ export async function backfillProductVariantMetadata() {
     updated += 1;
   }
   return updated;
+}
+
+/**
+ * "옵션 미확인"(variantLabel·unitLabel·quantity·packSize가 모두 비어 있는) 상품만
+ * 골라 상품명에서 용량·수량을 다시 파싱해 채운다. 수집기 방문 없이 상품명만으로
+ * 되는 만큼 개선 폭은 제한적이지만(대부분은 이름에 규격 정보가 아예 없어 여전히
+ * 미확인으로 남는다), describeProductVariant 로직이 개선될 때마다(예: 용량 없이
+ * "2개" 같은 수량만 있는 경우도 인식) 기존 활성 상품 전체에 무료로, 위험 없이
+ * 소급 적용할 수 있다. 이미 값이 있는 상품(특히 수집기로 확인된 상품)은 건드리지
+ * 않는다.
+ */
+export async function backfillMissingOptionMetadataFromNames() {
+  const db = await getDb();
+  if (!db) throw new Error("Database is unavailable");
+  const records = await db
+    .select({ id: products.id, name: products.name, currentPrice: products.currentPrice, categoryName: products.categoryName })
+    .from(products)
+    .where(and(
+      eq(products.isActive, true),
+      isNull(products.variantLabel),
+      isNull(products.unitLabel),
+      isNull(products.quantity),
+      isNull(products.packSize),
+    ));
+  let updatedCount = 0;
+  for (const record of records) {
+    const variant = describeProductVariant(record.name, record.currentPrice, record.categoryName);
+    if (!variant.variantLabel && !variant.unitLabel && variant.quantity == null) continue;
+    await db
+      .update(products)
+      .set({ variantLabel: variant.variantLabel, unitPrice: variant.unitPrice, unitLabel: variant.unitLabel, quantity: variant.quantity })
+      .where(eq(products.id, record.id));
+    updatedCount += 1;
+  }
+  return { scannedCount: records.length, updatedCount, unchangedCount: records.length - updatedCount };
 }
 
 export async function getProductById(productId: number) {

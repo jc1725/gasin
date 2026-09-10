@@ -27,8 +27,13 @@ export function findUnmatchedGoldBoxKeys(selectedKeys: Set<string>, offers: Arra
 }
 
 export const MAX_DEFERRED_SEARCH_RECHECKS_PER_RUN = 24;
-/** 3분 Heartbeat 제한 안에서 안정적으로 종료하면서 가격 갱신 예산 32회/분을 넘지 않는 순차 배치 크기입니다. */
-export const PRICE_REFRESH_SEARCH_BATCH_SIZE = 10;
+/**
+ * 3분 Heartbeat 제한 안에서 안정적으로 종료하면서 가격 갱신 예산(추적용 32회/분)을 넘지
+ * 않는 순차 배치 크기입니다. 상품당 최대 2회 호출(findSkuWithFallbackQueries)을 가정해도
+ * 30개 배치는 최악의 경우 60회로 3분(최대 96회 예산) 안에 여유 있게 처리되며, 예산을
+ * 넘어서면 coupangRateLimit이 보호 모드로 안전하게 중단·재시도하므로 초과 위험은 없습니다.
+ */
+export const PRICE_REFRESH_SEARCH_BATCH_SIZE = 30;
 
 export async function recheckDeferredSearchProducts() {
   const candidates = await db.getDeferredSearchProducts(MAX_DEFERRED_SEARCH_RECHECKS_PER_RUN);

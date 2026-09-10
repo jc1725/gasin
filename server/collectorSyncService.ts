@@ -2,6 +2,7 @@ import * as db from "./db";
 import { checkAndSendExtensionPriceAlerts } from "./priceAlertService";
 
 let metadataSyncInFlight = false;
+let nameBackfillInFlight = false;
 
 export async function syncCollectedPriceDataForAdmin() {
   const runId = await db.startSyncRun("collection");
@@ -26,5 +27,16 @@ export async function syncCollectorMetadataForAdmin() {
     return { status: "completed" as const, ...result, detail: `수집 관측 ${result.observedCount}개 · 대상 매칭 ${result.matchedCount}개 · 옵션 보완 ${result.updatedCount}개 · 이미 최신 ${result.unchangedCount}개 · 미연결 ${result.unmatchedCount}개` };
   } finally {
     metadataSyncInFlight = false;
+  }
+}
+
+export async function backfillMissingOptionMetadataFromNamesForAdmin() {
+  if (nameBackfillInFlight) return { status: "already_running" as const, scannedCount: 0, updatedCount: 0, unchangedCount: 0, detail: "이미 이름 기반 옵션 보완이 실행 중입니다." };
+  nameBackfillInFlight = true;
+  try {
+    const result = await db.backfillMissingOptionMetadataFromNames();
+    return { status: "completed" as const, ...result, detail: `옵션 미확인 상품 ${result.scannedCount}개 검사 · 이름에서 규격 발견 ${result.updatedCount}개 · 여전히 정보 없음 ${result.unchangedCount}개` };
+  } finally {
+    nameBackfillInFlight = false;
   }
 }

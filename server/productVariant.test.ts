@@ -7,6 +7,7 @@ describe("describeProductVariant", () => {
       variantLabel: "80ml × 1개",
       unitPrice: 1103,
       unitLabel: "10ml",
+      quantity: 1,
     });
   });
 
@@ -15,6 +16,7 @@ describe("describeProductVariant", () => {
       variantLabel: "1.5L × 12개",
       unitPrice: 100,
       unitLabel: "100ml",
+      quantity: 12,
     });
   });
 
@@ -23,6 +25,7 @@ describe("describeProductVariant", () => {
       variantLabel: "500g × 4개",
       unitPrice: 600,
       unitLabel: "100g",
+      quantity: 4,
     });
   });
 
@@ -31,6 +34,25 @@ describe("describeProductVariant", () => {
       variantLabel: null,
       unitPrice: null,
       unitLabel: null,
+      quantity: null,
+    });
+  });
+
+  it("keeps a bare quantity marker even without a capacity token", () => {
+    expect(describeProductVariant("퀸센스 인덕션 로제 냄비 2개", 45000, "생활용품")).toEqual({
+      variantLabel: "2개",
+      unitPrice: null,
+      unitLabel: null,
+      quantity: 2,
+    });
+  });
+
+  it("returns nothing when the name has neither a capacity nor a quantity token", () => {
+    expect(describeProductVariant("삼다수 무라벨 그린", 4500, "식품")).toEqual({
+      variantLabel: null,
+      unitPrice: null,
+      unitLabel: null,
+      quantity: null,
     });
   });
 });
