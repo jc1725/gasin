@@ -1,5 +1,8 @@
 import nodemailer from "nodemailer";
+import dns from "node:dns/promises";
 import { ENV } from "./_core/env";
+
+const GMAIL_SMTP_HOST = "smtp.gmail.com";
 
 export type PriceAlertEmailInput = {
   to: string;
@@ -36,12 +39,31 @@ function validateConfig() {
   }
 }
 
-export function createGmailTransport() {
+/**
+ * Railway 등 일부 컨테이너 환경은 아웃바운드 IPv6 라우트가 없다. nodemailer는 호스트명의
+ * A/AAAA 레코드를 함께 조회해 두 결과를 모두 활용할 수 있는데, 이때 AAAA로 연결을 시도하면
+ * "connect ENETUNREACH ...:465 - Local (:::0)"로 즉시 실패한다. IPv4 주소를 미리 직접
+ * 확인해 그 주소로만 연결하고, TLS 인증서 검증(SNI)을 위한 servername은 원래 호스트명으로
+ * 유지한다. IPv4 조회 자체가 실패하면 기존처럼 호스트명을 그대로 사용한다.
+ */
+async function resolveGmailSmtpIpv4Host(): Promise<string> {
+  try {
+    const addresses = await dns.resolve4(GMAIL_SMTP_HOST);
+    if (addresses.length > 0) return addresses[0]!;
+  } catch (error) {
+    console.warn("[Gmail SMTP] IPv4 주소 확인에 실패해 호스트명으로 연결합니다.", error);
+  }
+  return GMAIL_SMTP_HOST;
+}
+
+export async function createGmailTransport() {
   validateConfig();
+  const host = await resolveGmailSmtpIpv4Host();
   return nodemailer.createTransport({
-    host: "smtp.gmail.com",
+    host,
     port: 465,
     secure: true,
+    tls: { servername: GMAIL_SMTP_HOST },
     auth: {
       user: ENV.gmailSmtpUsername,
       pass: ENV.gmailSmtpAppPassword,
@@ -74,7 +96,7 @@ export function buildPriceAlertEmail(input: PriceAlertEmailInput) {
 
 export async function sendPriceAlertEmail(input: PriceAlertEmailInput) {
   const email = buildPriceAlertEmail(input);
-  const transport = createGmailTransport();
+  const transport = await createGmailTransport();
   return transport.sendMail({
     from: `가신 가격 알림 <${ENV.gmailSmtpUsername}>`,
     to: input.to,

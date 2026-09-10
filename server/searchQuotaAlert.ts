@@ -40,7 +40,7 @@ export async function notifySearchQuotaExceeded(input: SearchQuotaAlertInput) {
   lastSearchQuotaAlertAt = now;
   try {
     const email = buildSearchQuotaAlertEmail(input);
-    const transport = createGmailTransport();
+    const transport = await createGmailTransport();
     await transport.sendMail({
       from: `가신 시스템 알림 <${ENV.gmailSmtpUsername}>`,
       to: ENV.gmailSmtpUsername,

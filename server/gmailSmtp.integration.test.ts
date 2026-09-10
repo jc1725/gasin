@@ -8,7 +8,7 @@ describe("Gmail SMTP credentials", () => {
     expect(user).toMatch(/^[^\s@]+@gmail\.com$/i);
     expect(pass).toMatch(/^.{16}$/);
 
-    const transport = createGmailTransport();
+    const transport = await createGmailTransport();
     await expect(transport.verify()).resolves.toBe(true);
   }, 25_000);
 });
