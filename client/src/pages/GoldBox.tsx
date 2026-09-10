@@ -17,7 +17,7 @@ export default function GoldBox() {
       {products.isLoading ? <p className="py-16 text-center text-sm text-[#829184]">골드박스 상품을 불러오는 중입니다.</p> : null}
       {!products.isLoading && products.data?.length === 0 ? <p className="rounded-2xl bg-white py-16 text-center text-sm text-[#829184]">첫 골드박스 수집을 기다리고 있습니다.</p> : null}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-        {products.data?.map(product => <ProductCard key={product.id} product={product} isFavorite={favoriteIds.has(product.id)} onFavorite={toggleProduct} />)}
+        {products.data?.map(product => <ProductCard key={product.id} product={product} isFavorite={favoriteIds.has(product.id)} onFavorite={item => { if (item.id != null) toggleProduct(item.id); }} />)}
       </div>
     </section>
   );

@@ -86,7 +86,7 @@ import {
   updateSmartstoreHotDeal,
 } from "./db";
 import { getSessionCookieOptions } from "./_core/cookies";
-import { searchCatalogSafely } from "./catalogSearch";
+import { materializeSearchResult, searchCatalogSafely } from "./catalogSearch";
 import { parseCoupangLink, resolveCoupangLink } from "./manualLink";
 import { parseCandidateCsv } from "./candidateCsv";
 import { parseUserConfirmedPriceCsv } from "./userConfirmedPriceCsv";
@@ -234,9 +234,19 @@ export const appRouter = router({
     search: publicProcedure
       .input(z.object({ keyword: z.string().trim().min(1).max(80), limit: z.number().int().min(1).max(10).optional(), refresh: z.boolean().optional() }))
       .mutation(async ({ ctx, input }) => {
-        const result = await searchCatalogSafely(input.keyword, input.limit, { forceExternal: input.refresh === true });
+        // 방문자가 검색만 해도 상품이 통째로 영구 저장되어 가격 추적 목록이 무작위로
+        // 계속 늘어나는 것을 막기 위해, 검색 자체는 더 이상 저장하지 않는다(persistNewResults: false).
+        // 실제 추적은 사용자가 결과를 클릭해 열거나 찜할 때 materializeSearchResult에서 시작된다.
+        const result = await searchCatalogSafely(input.keyword, input.limit, { forceExternal: input.refresh === true, persistNewResults: false });
         await recordSearchEvent({ userId: ctx.user?.id ?? null, keyword: input.keyword, resultSource: result.source, resultCount: result.products.length });
         return result;
+      }),
+    materializeSearchResult: publicProcedure
+      .input(z.object({ keyword: z.string().trim().min(1).max(80), productId: z.number().int().positive(), productUrl: z.string().url() }))
+      .mutation(async ({ input }) => {
+        const saved = await materializeSearchResult(input.keyword, { productId: input.productId, productUrl: input.productUrl });
+        if (!saved) throw new TRPCError({ code: "NOT_FOUND", message: "검색 결과가 만료되었습니다. 다시 검색해 주세요." });
+        return saved;
       }),
     suggestions: publicProcedure
       .input(z.object({ query: z.string().trim().max(80), limit: z.number().int().min(1).max(8).optional() }))

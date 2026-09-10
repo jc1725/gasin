@@ -1,10 +1,12 @@
 import * as db from "./db";
-import { searchCoupangProducts } from "./coupang";
+import { getCoupangVariantKey, searchCoupangProducts } from "./coupang";
+import type { CoupangProduct } from "./coupang";
 import { CoupangRateLimitError } from "./coupangRateLimit";
 import type { CoupangApiCallType } from "./coupangRateLimit";
 import { buildSearchKeywordVariants, filterStableDeliveryResults, rankSearchResults } from "./searchRelevance";
 import { notifySearchQuotaExceeded } from "./searchQuotaAlert";
 import { isExcludedTrackingCategory } from "./categoryEligibility";
+import { describeProductVariant } from "./productVariant";
 
 export type CatalogSearchResult = {
   products: Awaited<ReturnType<typeof db.listProducts>>;
@@ -13,6 +15,113 @@ export type CatalogSearchResult = {
   limitReason?: "minute-limit" | "emergency-block";
   message?: string;
 };
+
+/**
+ * 방문자가 검색만 해도 관련 상품이 통째로 영구 저장되어 가격 추적 목록이 무작위로
+ * 계속 늘어나는 문제를 막기 위한 "지연 등록" 결과 항목입니다. id가 아직 없고,
+ * 실제로 상세 페이지를 열거나 찜하는 시점에만 materializeSearchResult로 진짜
+ * 저장(가격 추적 시작)됩니다. 원본 쿠팡 응답을 다시 찾을 수 있는 최소 식별 정보
+ * (pendingMaterialize)만 들고 있습니다.
+ */
+export type EphemeralSearchProduct = {
+  id: null;
+  externalProductId: string;
+  name: string;
+  imageUrl: string;
+  affiliateUrl: string;
+  categoryName: string | null;
+  currentPrice: number;
+  lowestPrice: number;
+  variantLabel: string | null;
+  unitPrice: number | null;
+  unitLabel: string | null;
+  quantity: number | null;
+  packSize: null;
+  source: "search";
+  isRocket: boolean;
+  isFreeShipping: boolean;
+  inStock: true;
+  pendingMaterialize: { keyword: string; productId: number; productUrl: string };
+};
+
+export type LazyCatalogSearchResult = {
+  products: Array<CatalogSearchResult["products"][number] | EphemeralSearchProduct>;
+  source: CatalogSearchResult["source"];
+  retryAt?: Date;
+  limitReason?: "minute-limit" | "emergency-block";
+  message?: string;
+};
+
+type RawSearchCacheEntry = { expiresAt: number; results: CoupangProduct[] };
+/** 재검색 시 쿠팡 API를 다시 부르지 않도록 원본 응답을 잠시 들고 있는 시간입니다. */
+const RAW_SEARCH_CACHE_TTL_MS = 20 * 60 * 1000;
+const RAW_SEARCH_CACHE_MAX_ENTRIES = 500;
+const rawSearchResultCache = new Map<string, RawSearchCacheEntry>();
+
+function normalizeRawCacheKey(keyword: string) {
+  return keyword.trim().toLowerCase();
+}
+
+function cacheRawSearchResults(keyword: string, results: CoupangProduct[]) {
+  const key = normalizeRawCacheKey(keyword);
+  rawSearchResultCache.delete(key);
+  rawSearchResultCache.set(key, { expiresAt: Date.now() + RAW_SEARCH_CACHE_TTL_MS, results });
+  while (rawSearchResultCache.size > RAW_SEARCH_CACHE_MAX_ENTRIES) {
+    const oldestKey = rawSearchResultCache.keys().next().value;
+    if (oldestKey === undefined) break;
+    rawSearchResultCache.delete(oldestKey);
+  }
+}
+
+function getCachedRawSearchResults(keyword: string): CoupangProduct[] | undefined {
+  const key = normalizeRawCacheKey(keyword);
+  const entry = rawSearchResultCache.get(key);
+  if (!entry) return undefined;
+  if (entry.expiresAt < Date.now()) {
+    rawSearchResultCache.delete(key);
+    return undefined;
+  }
+  return entry.results;
+}
+
+function toEphemeralSearchProduct(keyword: string, item: CoupangProduct): EphemeralSearchProduct {
+  const variant = describeProductVariant(item.productName, item.productPrice, item.categoryName ?? null);
+  return {
+    id: null,
+    externalProductId: getCoupangVariantKey(item),
+    name: item.productName,
+    imageUrl: item.productImage,
+    affiliateUrl: item.productUrl,
+    categoryName: item.categoryName ?? null,
+    currentPrice: item.productPrice,
+    lowestPrice: item.productPrice,
+    variantLabel: variant.variantLabel,
+    unitPrice: variant.unitPrice,
+    unitLabel: variant.unitLabel,
+    quantity: variant.quantity,
+    packSize: null,
+    source: "search",
+    isRocket: Boolean(item.isRocket),
+    isFreeShipping: Boolean(item.isFreeShipping),
+    inStock: true,
+    pendingMaterialize: { keyword, productId: item.productId, productUrl: item.productUrl },
+  };
+}
+
+/**
+ * 검색 결과 카드를 실제로 열거나 찜할 때만 호출됩니다. 클라이언트가 보낸
+ * productId·productUrl은 신뢰하지 않고, 그 검색어로 서버가 직접 캐시해둔 원본
+ * 쿠팡 응답에서 일치하는 항목을 찾아 그 데이터로만 저장합니다 — 캐시가
+ * 만료되었거나 일치하는 항목이 없으면 null을 반환해 다시 검색하도록 합니다.
+ */
+export async function materializeSearchResult(keyword: string, identity: { productId: number; productUrl: string }) {
+  const cached = getCachedRawSearchResults(keyword);
+  if (!cached) return null;
+  const targetKey = getCoupangVariantKey(identity);
+  const match = cached.find(item => item.productId === identity.productId && getCoupangVariantKey(item) === targetKey);
+  if (!match) return null;
+  return db.upsertCoupangProduct(match, "search");
+}
 
 function isStoredCoupangAffiliateUrl(value: string) {
   try {
@@ -39,8 +148,11 @@ function removeExcludedTrackingProducts<T extends { categoryName?: string | null
   return products.filter(product => !isExcludedTrackingCategory({ categoryName: product.categoryName, name: product.name, productName: product.productName }));
 }
 
-export async function searchCatalogSafely(keyword: string, limit = 10, options: { forceExternal?: boolean; callType?: CoupangApiCallType } = {}): Promise<CatalogSearchResult> {
+export async function searchCatalogSafely(keyword: string, limit?: number, options?: { forceExternal?: boolean; callType?: CoupangApiCallType; persistNewResults?: true }): Promise<CatalogSearchResult>;
+export async function searchCatalogSafely(keyword: string, limit: number | undefined, options: { forceExternal?: boolean; callType?: CoupangApiCallType; persistNewResults: false }): Promise<LazyCatalogSearchResult>;
+export async function searchCatalogSafely(keyword: string, limit = 10, options: { forceExternal?: boolean; callType?: CoupangApiCallType; persistNewResults?: boolean } = {}): Promise<CatalogSearchResult | LazyCatalogSearchResult> {
   const callType = options.callType ?? "product-search";
+  const persistNewResults = options.persistNewResults ?? true;
   let databaseFallback: CatalogSearchResult["products"] = [];
   if (!options.forceExternal) {
     const cached = await db.findCachedSearchProducts(keyword);
@@ -70,7 +182,10 @@ export async function searchCatalogSafely(keyword: string, limit = 10, options: 
 
   try {
     let searchKeyword = keyword;
-    let results = await searchCoupangProducts(searchKeyword, limit, callType);
+    // 지연 등록 모드에서는 방금 저장한 짧은 TTL 원본 캐시가 있으면 쿠팡 API를 다시
+    // 부르지 않고 그대로 재사용한다(재검색으로 인한 불필요한 API 호출 방지).
+    const cachedRaw = !persistNewResults && !options.forceExternal ? getCachedRawSearchResults(keyword) : undefined;
+    let results = cachedRaw ?? await searchCoupangProducts(searchKeyword, limit, callType);
     let relevantResults = removeExcludedTrackingProducts(filterStableDeliveryResults(rankSearchResults(searchKeyword, results)));
     // 사용자 검색에서만, 1차 결과가 없거나 무관할 때 검색어 표기 변형을 한 번 보완합니다.
     // 가격 추적 작업은 상위 호출부의 SKU matcher가 호출 횟수를 통제합니다.
@@ -102,6 +217,22 @@ export async function searchCatalogSafely(keyword: string, limit = 10, options: 
           : "쿠팡 최신 검색 결과에 검색어와 일치하는 상품이 없습니다.",
       };
     }
+
+    if (!persistNewResults) {
+      // 실제로 방문자가 클릭(상세 열람·찜)하기 전에는 DB에 아무것도 남기지 않는다.
+      // 재검색 시 쿠팡 API를 또 부르지 않도록 원본 응답만 짧게 캐시해 둔다.
+      cacheRawSearchResults(keyword, relevantResults);
+      const ephemeral = relevantResults.map(item => toEphemeralSearchProduct(keyword, item));
+      if (ephemeral.length === 0 && callType === "product-search") await db.recordMissingSearch(keyword);
+      return {
+        products: ephemeral,
+        source: "coupang",
+        message: ephemeral.length > 0
+          ? (options.forceExternal ? "쿠팡 공식 API로 최신 검색 결과를 새로 확인했습니다." : "쿠팡 최신 검색 결과 중 검색어와 일치하는 상품을 표시합니다.")
+          : "쿠팡 최신 검색 결과에 검색어와 일치하는 상품이 없습니다.",
+      };
+    }
+
     const stored = await db.upsertCoupangProducts(relevantResults, "search");
     const ranked = removeExcludedTrackingProducts(filterStableDeliveryResults(rankSearchResults(keyword, stored)));
     await reuseAffiliateUrlsFromSearch(ranked);

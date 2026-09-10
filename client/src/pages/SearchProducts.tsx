@@ -33,6 +33,7 @@ export default function SearchProducts() {
   const [resultSort, setResultSort] = useState<SearchResultSort>("relevance");
   const [restoredSearch, setRestoredSearch] = useState<SearchResultSnapshot | null>(() => loadSearchSnapshot<SearchResultSnapshot>(routeKeyword));
   const search = trpc.catalog.search.useMutation();
+  const materialize = trpc.catalog.materializeSearchResult.useMutation();
   const productRequest = trpc.productRequests.submit.useMutation({
     onSuccess: request => {
       setRequestSubmittedKeyword(request.normalizedKeyword);
@@ -46,7 +47,9 @@ export default function SearchProducts() {
   const { favoriteIds, toggleProduct, isGoogleUser } = useFavorites();
   const searchResult = search.data ?? restoredSearch;
   const displayedProducts = useMemo(() => sortSearchResultProducts(searchResult?.products ?? [], resultSort), [searchResult?.products, resultSort]);
-  const searchProductIds = useMemo(() => searchResult?.products.map(product => product.id) ?? [], [searchResult?.products]);
+  // 검색 결과는 실제로 클릭하기 전까지 저장되지 않아 id가 없을 수 있다(id: null).
+  // 확인 가격 조회는 이미 저장된(=이미 추적 중인) 상품에만 의미가 있으므로 그런 것만 추린다.
+  const searchProductIds = useMemo(() => (searchResult?.products ?? []).flatMap(product => product.id != null ? [product.id] : []), [searchResult?.products]);
   const searchUserConfirmedPrices = trpc.userPrices.listLatestForProducts.useQuery(
     { productIds: searchProductIds },
     { enabled: isGoogleUser && searchProductIds.length > 0 }
@@ -130,6 +133,31 @@ export default function SearchProducts() {
     productRequest.mutate({ keyword: normalizedKeyword });
   };
 
+  // 검색 결과는 클릭하기 전까지 저장되지 않는다(id: null). 이미 저장된(=이미
+  // 추적 중인) 상품은 바로 열고, 아직 저장되지 않은 상품은 이 순간에 실제로
+  // 저장(가격 추적 시작)한 뒤 방금 받은 id로 이동한다.
+  const materializeThen = async (product: ProductCardItem, onReady: (productId: number) => void) => {
+    if (product.id != null) {
+      onReady(product.id);
+      return;
+    }
+    if (!product.pendingMaterialize) return;
+    try {
+      const saved = await materialize.mutateAsync(product.pendingMaterialize);
+      onReady(saved.id);
+    } catch {
+      toast.error("검색 결과가 만료되었습니다. 다시 검색해 주세요.");
+    }
+  };
+
+  const openProduct = (product: ProductCardItem) => {
+    void materializeThen(product, productId => setLocation(`/product/${productId}`));
+  };
+
+  const favoriteProduct = (product: ProductCardItem) => {
+    void materializeThen(product, productId => toggleProduct(productId));
+  };
+
   return (
     <section>
       <p className="text-xs font-bold text-[#308154]">COUPANG PARTNERS</p>
@@ -148,7 +176,7 @@ export default function SearchProducts() {
       {searchResult && searchResult.products.length === 0 && searchResult.source !== "rate_limited" ? <section className="mt-6 rounded-2xl border border-[#dbe7da] bg-white p-5 text-center shadow-sm"><p className="text-sm font-bold text-[#365841]">검색 결과가 없습니다.</p><button type="button" onClick={submitProductRequest} disabled={productRequest.isPending || requestSubmittedKeyword === keyword.trim().toLowerCase()} className="mt-4 inline-flex min-h-10 items-center justify-center rounded-xl bg-[#176b3a] px-4 text-xs font-bold text-white transition hover:bg-[#125a30] active:scale-95 disabled:opacity-60">{requestSubmittedKeyword === keyword.trim().toLowerCase() ? "상품 추가 요청 완료" : productRequest.isPending ? "요청 전달 중" : "상품 추가 요청하기"}</button></section> : null}
       {searchResult && searchResult.products.length > 0 ? <div className="mt-5 flex flex-wrap items-center gap-2"><span className="mr-1 text-[11px] font-bold text-[#607765]">정렬</span><button type="button" onClick={() => setResultSort("relevance")} aria-pressed={resultSort === "relevance"} className={`min-h-8 rounded-full px-3 text-[11px] font-bold ${resultSort === "relevance" ? "bg-[#176b3a] text-white" : "bg-white text-[#607765] ring-1 ring-[#dce8de]"}`}>관련도순</button><button type="button" onClick={() => setResultSort("priceAsc")} aria-pressed={resultSort === "priceAsc"} className={`min-h-8 rounded-full px-3 text-[11px] font-bold ${resultSort === "priceAsc" ? "bg-[#176b3a] text-white" : "bg-white text-[#607765] ring-1 ring-[#dce8de]"}`}>낮은 가격순</button><span title="쿠팡 파트너스 공식 검색 API가 리뷰 수를 제공하지 않아 정렬할 수 없습니다." className="min-h-8 rounded-full bg-[#f1f4f1] px-3 py-2 text-[10px] font-semibold text-[#829184]">리뷰 많은 순 · 정보 없음</span></div> : null}
       <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3">
-        {displayedProducts.map(product => <ProductCard key={product.id} product={product} isFavorite={favoriteIds.has(product.id)} onFavorite={toggleProduct} userConfirmedPrice={searchUserConfirmedPriceByProductId.get(product.id)} />)}
+        {displayedProducts.map(product => <ProductCard key={product.externalProductId ?? product.id} product={product} isFavorite={product.id != null && favoriteIds.has(product.id)} onOpen={openProduct} onFavorite={favoriteProduct} userConfirmedPrice={product.id != null ? searchUserConfirmedPriceByProductId.get(product.id) : undefined} />)}
       </div>
     </section>
   );

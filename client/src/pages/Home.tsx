@@ -29,7 +29,7 @@ export default function Home() {
       <div className="mt-8 flex items-end justify-between"><div><p className="text-xs font-bold text-[#308154]">COUPANG CATEGORY BEST</p><h2 className="mt-1 text-xl font-extrabold tracking-[-0.06em]">{featured.data?.source === "bestcategory" ? "카테고리 베스트 상품" : "쿠팡 특가 상품"}</h2></div><Link href="/goldbox" className="text-xs font-bold text-[#176b3a]">골드박스 전체보기</Link></div>
       {featured.isLoading ? <p className="py-16 text-center text-sm text-[#829184]">카테고리 베스트 상품을 불러오는 중입니다.</p> : null}
       {!featured.isLoading && featured.data?.products.length === 0 ? <div className="mt-5 rounded-3xl bg-white p-8 text-center shadow-sm ring-1 ring-[#e9efea]"><span className="mx-auto grid size-11 place-items-center rounded-2xl bg-[#e5f2e7] text-[#176b3a]"><ChartNoAxesCombined className="size-5" /></span><p className="mt-4 text-sm font-bold">카테고리 베스트 상품을 준비 중입니다</p><p className="mt-1 text-xs leading-5 text-[#829184]">공식 카테고리 베스트 수집 후 이곳에 표시됩니다.</p></div> : null}
-      <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3">{featured.data?.products.map((product, index) => <ProductCard key={product.id} product={product} priority={index === 0} isFavorite={favoriteIds.has(product.id)} onFavorite={toggleProduct} />)}</div>
+      <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3">{featured.data?.products.map((product, index) => <ProductCard key={product.id} product={product} priority={index === 0} isFavorite={favoriteIds.has(product.id)} onFavorite={item => { if (item.id != null) toggleProduct(item.id); }} />)}</div>
     </section>
   );
 }
