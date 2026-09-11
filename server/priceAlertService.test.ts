@@ -28,7 +28,10 @@ vi.mock("./db", () => ({
   completeTargetPriceAlertDelivery: mocks.completeTargetPriceAlertDelivery,
   failTargetPriceAlertDelivery: mocks.failTargetPriceAlertDelivery,
 }));
-vi.mock("./gmailSender", () => ({ sendPriceAlertEmail: mocks.sendPriceAlertEmail }));
+vi.mock("./gmailSender", async importOriginal => {
+  const actual = await importOriginal<typeof import("./gmailSender")>();
+  return { ...actual, sendPriceAlertEmail: mocks.sendPriceAlertEmail };
+});
 vi.mock("./webPushSender", () => ({ sendTargetPricePushNotification: mocks.sendTargetPricePushNotification }));
 vi.mock("./priceAlertUnsubscribe", () => ({ buildPriceAlertUnsubscribeUrl: mocks.buildPriceAlertUnsubscribeUrl }));
 
@@ -76,5 +79,18 @@ describe("확장 프로그램 와우 회원가 알림", () => {
   it("기본 가격 비교 함수는 같은 값 또는 더 낮은 값만 허용한다", () => {
     expect(is24hLowestPrice(12_900, 12_900)).toBe(true);
     expect(hasReachedTargetPrice(12_900, 13_000)).toBe(true);
+  });
+
+  // Railway Free/Trial/Hobby 플랜은 아웃바운드 SMTP를 차단해 Gmail 발송이
+  // "ETIMEDOUT"/"CONN"으로 타임아웃될 수 있다. 이 실패가 알림 전체를 죽이지 않고
+  // failPriceAlertDelivery에 원인이 바로 드러나는 메시지로 기록되어야 한다.
+  it("Gmail SMTP가 타임아웃으로 실패해도 원인을 남기고 계속 진행한다", async () => {
+    const timeoutError = Object.assign(new Error("Connection timeout"), { code: "ETIMEDOUT", command: "CONN" });
+    mocks.sendPriceAlertEmail.mockRejectedValueOnce(timeoutError);
+
+    const result = await checkAndSendExtensionPriceAlerts([42]);
+
+    expect(result).toMatchObject({ eligibleProducts: 1, sent: 0, failed: 1 });
+    expect(mocks.failPriceAlertDelivery).toHaveBeenCalledWith(101, expect.stringContaining("Railway"));
   });
 });

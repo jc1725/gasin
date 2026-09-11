@@ -1,5 +1,5 @@
 import * as db from "./db";
-import { sendPriceAlertEmail } from "./gmailSender";
+import { describeGmailSmtpError, sendPriceAlertEmail } from "./gmailSender";
 import { buildPriceAlertUnsubscribeUrl } from "./priceAlertUnsubscribe";
 import { sendTargetPricePushNotification } from "./webPushSender";
 
@@ -74,7 +74,7 @@ export async function checkAndSendExtensionPriceAlerts(productIds: number[], now
           await db.completeTargetPriceAlertDelivery(alertLogId);
           summary.sent += 1;
         } catch (error) {
-          const detail = error instanceof Error ? error.message : "Unknown Gmail SMTP delivery error";
+          const detail = describeGmailSmtpError(error);
           await db.failTargetPriceAlertDelivery(alertLogId, detail);
           summary.failed += 1;
           console.error(`[Target price alert] Gmail delivery failed for product ${product.id}, favorite ${recipient.favoriteId}`, error);
@@ -119,7 +119,7 @@ export async function checkAndSendExtensionPriceAlerts(productIds: number[], now
         await db.completePriceAlertDelivery(alertLogId);
         summary.sent += 1;
       } catch (error) {
-        const detail = error instanceof Error ? error.message : "Unknown Gmail SMTP delivery error";
+        const detail = describeGmailSmtpError(error);
         await db.failPriceAlertDelivery(alertLogId, detail);
         summary.failed += 1;
         console.error(`[Price alert] Gmail delivery failed for product ${product.id}, favorite ${recipient.favoriteId}`, error);

@@ -200,7 +200,11 @@ class SDKServer {
     cookieValue: string | undefined | null
   ): Promise<{ openId: string; appId: string; name: string } | null> {
     if (!cookieValue) {
-      console.warn("[Auth] Missing session cookie");
+      // 로그인하지 않은 방문자의 완전히 정상적인 상태다. createContext()가 모든
+      // 요청(공개 절차 포함)마다 authenticateRequest → verifySession을 거치기
+      // 때문에, 여기서 경고를 남기면 비로그인 방문자의 검색·상품 조회 등
+      // 정상 트래픽마다 매번 "[Auth] Missing session cookie"가 찍혀 실제 인증
+      // 실패(서명 불일치 등, 아래 catch 블록)가 로그에 묻힌다. 조용히 null만 반환한다.
       return null;
     }
 

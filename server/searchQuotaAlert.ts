@@ -1,4 +1,4 @@
-import { createGmailTransport } from "./gmailSender";
+import { createGmailTransport, describeGmailSmtpError } from "./gmailSender";
 import { ENV } from "./_core/env";
 
 export const SEARCH_QUOTA_ALERT_COOLDOWN_MS = 15 * 60 * 1000;
@@ -50,7 +50,7 @@ export async function notifySearchQuotaExceeded(input: SearchQuotaAlertInput) {
     });
     return { sent: true as const, suppressed: false as const };
   } catch (error) {
-    console.warn("[Search quota alert] Failed to send email", error);
+    console.warn("[Search quota alert] Failed to send email:", describeGmailSmtpError(error));
     return { sent: false as const, suppressed: false as const, failed: true as const };
   }
 }

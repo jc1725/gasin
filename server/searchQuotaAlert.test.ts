@@ -2,7 +2,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({ sendMail: vi.fn(), createGmailTransport: vi.fn() }));
 
-vi.mock("./gmailSender", () => ({ createGmailTransport: mocks.createGmailTransport }));
+vi.mock("./gmailSender", async importOriginal => {
+  const actual = await importOriginal<typeof import("./gmailSender")>();
+  return { ...actual, createGmailTransport: mocks.createGmailTransport };
+});
 vi.mock("./_core/env", () => ({
   ENV: {
     gmailSmtpUsername: "owner@example.com",
@@ -43,5 +46,16 @@ describe("search quota email alert", () => {
       to: "owner@example.com",
       subject: "[가신] 쿠팡 상품 검색 API 한도 초과 안내",
     }));
+  });
+
+  // Railway Free/Trial/Hobby 플랜은 아웃바운드 SMTP를 차단해 465번 포트 연결이
+  // "ETIMEDOUT"/"CONN"으로 타임아웃된다. 이런 발송 실패도 앱을 죽이지 않고
+  // 실패 상태를 그대로 반환해야 한다(원인 설명은 describeGmailSmtpError가 맡는다).
+  it("발송이 SMTP 타임아웃으로 실패해도 실패 상태를 반환할 뿐 예외를 던지지 않는다", async () => {
+    const timeoutError = Object.assign(new Error("Connection timeout"), { code: "ETIMEDOUT", command: "CONN" });
+    mocks.sendMail.mockRejectedValueOnce(timeoutError);
+
+    await expect(notifySearchQuotaExceeded({ reason: "minute-limit", retryAt: new Date("2026-08-28T06:10:00.000Z") }))
+      .resolves.toEqual({ sent: false, suppressed: false, failed: true });
   });
 });

@@ -56,6 +56,21 @@ async function resolveGmailSmtpIpv4Host(): Promise<string> {
   return GMAIL_SMTP_HOST;
 }
 
+/**
+ * Railway의 Free/Trial/Hobby 플랜은 스팸 방지를 위해 아웃바운드 SMTP(25/465/587/2525)를
+ * 아예 차단하고, Pro 플랜부터만 허용한다(공식 문서: docs.railway.com/networking/outbound-networking).
+ * 이 경우 TCP 연결 시도 자체가 응답 없이 막혀 즉시 거부(ENETUNREACH 등)가 아니라
+ * "ETIMEDOUT" + command "CONN"으로 타임아웃 후에야 실패로 나타난다. 코드로는 고칠 수 없는
+ * 플랫폼 제약이므로, 원인 모를 스택 트레이스 대신 바로 조치할 수 있는 메시지로 구분해 둔다.
+ */
+export function describeGmailSmtpError(error: unknown): string {
+  const nodeError = error as { code?: string; command?: string } | null;
+  if (nodeError?.code === "ETIMEDOUT" && nodeError?.command === "CONN") {
+    return "Gmail SMTP(465번 포트) 연결이 타임아웃됐습니다. Railway Free/Trial/Hobby 플랜은 아웃바운드 SMTP를 차단하므로, Pro 플랜으로 업그레이드하거나 Resend 등 HTTPS 기반 이메일 API로 전환해야 발송이 됩니다.";
+  }
+  return error instanceof Error ? error.message : "Unknown Gmail SMTP delivery error";
+}
+
 export async function createGmailTransport() {
   validateConfig();
   const host = await resolveGmailSmtpIpv4Host();
