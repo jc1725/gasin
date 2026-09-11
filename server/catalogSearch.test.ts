@@ -69,6 +69,32 @@ describe("searchCatalogSafely - 저장 결과 커버리지 판단", () => {
     expect(mocks.searchCoupangProducts).not.toHaveBeenCalled();
   });
 
+  // 실제로 라이브 재현된 사고(1~3차 수정 배포 후에도 재현됨): DB에 완전 일치 상품이 있어도,
+  // 같은 검색어로 함께 저장된 "로켓배송 묶음/세트" 상품이 여러 개 있으면
+  // filterStableDeliveryResults가 배송 태그 없는 완전 일치 상품(가신 수집기로 등록한 낱개
+  // 상품)을 통째로 걸러내고 로켓 태그만 있는 무관한 묶음 상품들만 남겼다. 이 4차 수정
+  // 전에는 이 테스트가 실패했다.
+  it("로켓배송 묶음 상품이 여러 개 섞여 있어도 배송 태그 없는 완전 일치 상품이 결과에서 빠지지 않는다", async () => {
+    const rocketBundle = {
+      id: 601,
+      name: "팬틴 케라틴 극손상케어 트리트먼트 220ml 3p + 샴푸 90ml 세트",
+      currentPrice: 13_910,
+      inStock: true,
+      categoryName: "뷰티",
+      externalProductId: "9040457204:23269593474:90301941455",
+      variantLabel: "90ml",
+      isRocket: true,
+      isFreeShipping: false,
+    };
+    mocks.searchTrackedProducts.mockResolvedValue([pantheneStoredProduct, rocketBundle]);
+
+    const result = await searchCatalogSafely("팬틴 극손상케어 트리트먼트");
+
+    expect(result.source).toBe("database");
+    expect(result.products.map(product => product.id)).toContain(501);
+    expect(mocks.searchCoupangProducts).not.toHaveBeenCalled();
+  });
+
   it("DB 저장 결과가 1개뿐이고 검색어와 완전히 일치하지도 않으면 외부 API로 보완한다", async () => {
     const looselyRelatedProduct = {
       id: 502,

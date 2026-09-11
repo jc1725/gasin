@@ -30,6 +30,25 @@ describe("rankSearchResults", () => {
     expect(filterStableDeliveryResults(products)).toEqual(products);
   });
 
+  // 실제로 재현된 사고: 가신 수집기로 등록한 정확한 상품(일반 배송, 로켓·무료배송 태그 없음)이
+  // 검색 결과 후보에 함께 있던 로켓 배송 "묶음/세트" 상품들 때문에 이 필터에서 통째로
+  // 걸러졌다. 사용자가 실제로 추적 중인 정확한 상품이 검색에서 사라지고 전혀 다른(더 비싸고
+  // 관련도 낮은) 묶음 상품들만 남는 결과로 이어졌다. keyword를 넘기면 완전 일치 상품은 배송
+  // 태그가 없어도 이 필터에서 제외되지 않아야 한다.
+  it("검색어와 완전히 일치하는 상품은 배송 태그가 없어도 걸러지지 않는다", () => {
+    const exactMatch = { name: "팬틴 극손상케어 트리트먼트", isRocket: false, isFreeShipping: false };
+    const rocketBundle = { name: "팬틴 케라틴 극손상케어 트리트먼트 220ml 3p + 샴푸 세트", isRocket: true, isFreeShipping: false };
+    const results = filterStableDeliveryResults([exactMatch, rocketBundle], "팬틴 극손상케어 트리트먼트");
+    expect(results).toEqual([exactMatch, rocketBundle]);
+  });
+
+  it("keyword를 넘기지 않으면 기존과 동일하게 배송 태그 기준으로만 거른다", () => {
+    const exactMatch = { name: "팬틴 극손상케어 트리트먼트", isRocket: false, isFreeShipping: false };
+    const rocketBundle = { name: "팬틴 케라틴 극손상케어 트리트먼트 220ml 3p + 샴푸 세트", isRocket: true, isFreeShipping: false };
+    const results = filterStableDeliveryResults([exactMatch, rocketBundle]);
+    expect(results).toEqual([rocketBundle]);
+  });
+
   it("removes the entire list when no product name matches the search text", () => {
     const products = [{ name: "우유 크림빵" }, { name: "소금버터 빵" }];
     expect(rankSearchResults("존재하지않는상품", products)).toEqual([]);

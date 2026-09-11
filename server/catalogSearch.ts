@@ -157,7 +157,7 @@ export async function searchCatalogSafely(keyword: string, limit = 10, options: 
   if (!options.forceExternal) {
     const cached = await db.findCachedSearchProducts(keyword);
     if (cached !== undefined) {
-      const rankedCached = removeExcludedTrackingProducts(filterStableDeliveryResults(rankSearchResults(keyword, cached)));
+      const rankedCached = removeExcludedTrackingProducts(filterStableDeliveryResults(rankSearchResults(keyword, cached), keyword));
       const cacheIsUsable = rankedCached.length > 0 && hasUsableStoredPrice(rankedCached);
       if (cacheIsUsable && hasFullKeywordMatch(keyword, rankedCached)) {
         return { products: rankedCached, source: "cache", message: "검색어와 일치하는 저장 결과를 표시합니다." };
@@ -170,7 +170,7 @@ export async function searchCatalogSafely(keyword: string, limit = 10, options: 
         // 로직이 배포로 수정돼도) 캐시가 만료되기 전까지는 계속 예전 결과만
         // 보여주는 사고가 난다. 캐시를 맹신하기 전에 저장 목록에 완전 일치 상품이
         // 있는지 한 번 더 확인하고, 있다면 그 결과로 캐시를 즉시 갱신한다.
-        const freshMatches = removeExcludedTrackingProducts(filterStableDeliveryResults(rankSearchResults(keyword, await db.searchTrackedProducts(keyword, limit))));
+        const freshMatches = removeExcludedTrackingProducts(filterStableDeliveryResults(rankSearchResults(keyword, await db.searchTrackedProducts(keyword, limit)), keyword));
         if (hasFullKeywordMatch(keyword, freshMatches) && hasUsableStoredPrice(freshMatches)) {
           await db.invalidateCachedSearchProducts(keyword);
           await db.cacheSearchProducts(keyword, freshMatches.map(product => product.id));
@@ -184,7 +184,7 @@ export async function searchCatalogSafely(keyword: string, limit = 10, options: 
     }
 
     const databaseMatches = await db.searchTrackedProducts(keyword, limit);
-    const rankedDatabaseMatches = removeExcludedTrackingProducts(filterStableDeliveryResults(rankSearchResults(keyword, databaseMatches)));
+    const rankedDatabaseMatches = removeExcludedTrackingProducts(filterStableDeliveryResults(rankSearchResults(keyword, databaseMatches), keyword));
     // 가신 수집기로 등록된 상품처럼 DB에 1~2개만 저장돼 있어도, 검색어 전체가
     // 상품명에 그대로 들어맞는 결과를 이미 찾았다면 "저장 결과가 부족하다"고
     // 보지 않는다. 그렇지 않으면 매번 외부 쿠팡 API를 호출해, API가 반환하는
@@ -208,7 +208,7 @@ export async function searchCatalogSafely(keyword: string, limit = 10, options: 
     // 부르지 않고 그대로 재사용한다(재검색으로 인한 불필요한 API 호출 방지).
     const cachedRaw = !persistNewResults && !options.forceExternal ? getCachedRawSearchResults(keyword) : undefined;
     let results = cachedRaw ?? await searchCoupangProducts(searchKeyword, limit, callType);
-    let relevantResults = removeExcludedTrackingProducts(filterStableDeliveryResults(rankSearchResults(searchKeyword, results)));
+    let relevantResults = removeExcludedTrackingProducts(filterStableDeliveryResults(rankSearchResults(searchKeyword, results), searchKeyword));
     // 사용자 검색에서만, 1차 결과가 없거나 무관할 때 검색어 표기 변형을 한 번 보완합니다.
     // 가격 추적 작업은 상위 호출부의 SKU matcher가 호출 횟수를 통제합니다.
     if (relevantResults.length === 0 && callType === "product-search") {
@@ -216,7 +216,7 @@ export async function searchCatalogSafely(keyword: string, limit = 10, options: 
       if (fallbackKeyword) {
         searchKeyword = fallbackKeyword;
         results = await searchCoupangProducts(searchKeyword, limit, callType);
-        relevantResults = removeExcludedTrackingProducts(filterStableDeliveryResults(rankSearchResults(searchKeyword, results)));
+        relevantResults = removeExcludedTrackingProducts(filterStableDeliveryResults(rankSearchResults(searchKeyword, results), searchKeyword));
       }
     }
     if (relevantResults.length === 0) {
@@ -256,7 +256,7 @@ export async function searchCatalogSafely(keyword: string, limit = 10, options: 
     }
 
     const stored = await db.upsertCoupangProducts(relevantResults, "search");
-    const ranked = removeExcludedTrackingProducts(filterStableDeliveryResults(rankSearchResults(keyword, stored)));
+    const ranked = removeExcludedTrackingProducts(filterStableDeliveryResults(rankSearchResults(keyword, stored), keyword));
     await reuseAffiliateUrlsFromSearch(ranked);
     await db.cacheSearchProducts(keyword, ranked.map(product => product.id));
     if (ranked.length === 0 && callType === "product-search") await db.recordMissingSearch(keyword);

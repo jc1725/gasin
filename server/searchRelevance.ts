@@ -182,9 +182,16 @@ export function hasFullKeywordMatch<T extends SearchableProduct>(keyword: string
   });
 }
 
-/** 배송 태그가 있는 결과가 하나라도 있으면 안정 배송 상품만 노출하고, 태그가 전혀 없을 때만 전체 관련 결과로 폴백한다. */
-export function filterStableDeliveryResults<T extends SearchableProduct>(products: T[]) {
-  const stableDeliveryProducts = products.filter(product => product.isRocket === true || product.isFreeShipping === true);
+/**
+ * 배송 태그가 있는 결과가 하나라도 있으면 안정 배송 상품만 노출하고, 태그가 전혀 없을 때만
+ * 전체 관련 결과로 폴백한다. 다만 검색어 핵심 토큰과 완전히 일치하는 상품(가신 수집기로
+ * 등록한 정확한 SKU 등)은 로켓·무료배송 태그가 없다는 이유만으로 걸러지면 안 된다 — 사용자가
+ * 실제로 추적 중인 그 상품이 검색에서 사라지고, 로켓 태그가 있을 뿐인 다른(예: 묶음/세트)
+ * 상품만 남는 사고로 이어진다. keyword를 넘기면 그런 완전 일치 상품은 이 필터에서 제외한다.
+ */
+export function filterStableDeliveryResults<T extends SearchableProduct>(products: T[], keyword?: string) {
+  const stableDeliveryProducts = products.filter(product =>
+    product.isRocket === true || product.isFreeShipping === true || (keyword ? hasFullKeywordMatch(keyword, [product]) : false));
   return stableDeliveryProducts.length > 0 ? stableDeliveryProducts : products;
 }
 
