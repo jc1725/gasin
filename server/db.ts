@@ -246,7 +246,16 @@ export function extractPackSizeFromOptionName(optionName: string | null | undefi
 
 type CollectorPriorityCandidate = Pick<typeof products.$inferSelect, "externalProductId" | "source" | "isActive" | "refreshState" | "deepLinkStatus">;
 
-/** 같은 상품 페이지의 대기·실패 검색 SKU는 수집기가 새로 확인한 정확 SKU보다 우선할 수 없다. */
+/**
+ * 같은 상품 페이지의 대기·실패 검색 SKU는 수집기가 새로 확인한 정확 SKU보다 우선할 수 없다.
+ *
+ * 쿠팡이 동일 옵션(같은 vendorItemId, 즉 같은 판매자 리스팅)의 itemId를 재발급하는 경우가 있다
+ * (예: 품절 후 재등록). 이때 수집기가 새 itemId로 관측을 보내면 기존 productId:itemId:vendorItemId
+ * 키로는 기존 행을 찾지 못해 완전히 새로운 상품 행이 생성되고, 기존 행(옛 itemId)은 가격이 영원히
+ * 갱신되지 않는 고아 상태로 남는다. source가 "collection"이어도 같은 productId+vendorItemId에서
+ * itemId만 바뀐 더 오래된 행은 새로 확인된 정확 SKU에 자리를 내주도록 한다(가격 이력·찜·알림·수동
+ * 링크는 supersedeSearchSkusWithCollectorObservation이 새 행으로 이관하고 옛 행은 비활성화).
+ */
 export function isSupersededSearchSkuForCollector(candidate: CollectorPriorityCandidate, collectorSku: string) {
   const [collectorProductId, , collectorVendorItemId] = collectorSku.split(":");
   const [candidateProductId, , candidateVendorItemId] = candidate.externalProductId.split(":");
@@ -255,7 +264,7 @@ export function isSupersededSearchSkuForCollector(candidate: CollectorPriorityCa
     && collectorProductId === candidateProductId
     && collectorVendorItemId === candidateVendorItemId
     && candidate.isActive
-    && (candidate.source === "search" || candidate.source === "goldbox");
+    && (candidate.source === "search" || candidate.source === "goldbox" || candidate.source === "collection");
 }
 
 /**
@@ -331,13 +340,17 @@ async function recordCollectorResolutionMetric(
 /**
  * 수집기가 실제로 확인한 정확 SKU로 대기·실패 검색 SKU의 사용자 연결만 이관하고,
  * 기존 가격 이력은 원본 SKU 감사 이력으로 남긴 뒤 원본 행을 비활성화한다.
+ *
+ * source가 "collection"인 후보도 포함한다: 쿠팡이 같은 vendorItemId(판매자 리스팅)의 itemId를
+ * 재발급하면 예전 itemId로 저장된 수집기 행이 고아로 남는데, 이 함수가 그 옛 행도 찾아 새 정확
+ * SKU 행으로 이관·비활성화해야 가격이 계속 갱신된다 (isSupersededSearchSkuForCollector 참고).
  */
 async function supersedeSearchSkusWithCollectorObservation(tx: any, collectorProductId: number, collectorSku: string, occurredAt: Date) {
   const [pageProductId, , collectorVendorItemId] = collectorSku.split(":");
   if (!pageProductId || !collectorVendorItemId) return 0;
   const candidates = await tx.select().from(products).where(and(
     eq(products.isActive, true),
-    or(eq(products.source, "search"), eq(products.source, "goldbox")),
+    or(eq(products.source, "search"), eq(products.source, "goldbox"), eq(products.source, "collection")),
     ne(products.id, collectorProductId),
     like(products.externalProductId, `${pageProductId}:%:${collectorVendorItemId}`),
   ));

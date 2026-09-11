@@ -44,6 +44,25 @@ describe("수집기 관측 우선 SKU 교체", () => {
     }, collectorSku)).toBe(false);
   });
 
+  it("쿠팡이 같은 vendorItemId의 itemId를 재발급해도 옛 수집기 SKU를 새 정확 SKU로 교체 대상으로 판정한다", () => {
+    // 같은 productId+vendorItemId, 다른 itemId(재발급) — source가 "collection"이어도 교체 대상.
+    expect(isSupersededSearchSkuForCollector({
+      externalProductId: "7629610794:28270438268:94131044924",
+      source: "collection",
+      isActive: true,
+      refreshState: "fresh",
+      deepLinkStatus: "ready",
+    }, collectorSku)).toBe(true);
+    // vendorItemId까지 다르면(진짜 다른 옵션) collection 소스는 여전히 교체 대상이 아니다.
+    expect(isSupersededSearchSkuForCollector({
+      externalProductId: "7629610794:28270438268:95223575593",
+      source: "collection",
+      isActive: true,
+      refreshState: "fresh",
+      deepLinkStatus: "ready",
+    }, collectorSku)).toBe(false);
+  });
+
   it("기존 사용자 연결은 수집기 SKU로 이관하고 이전 대기 SKU는 비활성화한다", () => {
     expect(db).toContain("async function supersedeSearchSkusWithCollectorObservation");
     expect(db).toContain("transferFavoritesAndCategoryEntries(tx, source.id, collectorProductId)");
