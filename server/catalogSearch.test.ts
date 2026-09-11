@@ -106,6 +106,70 @@ describe("searchCatalogSafely - 저장 결과 커버리지 판단", () => {
     expect(result.source).toBe("coupang");
   });
 
+  // 실제로 재현된 사고: 코드 수정을 배포해도, 그 전에 검색해 만들어진 12시간짜리
+  // 캐시(searchCaches)가 남아 있으면 이후 동일 검색어 요청은 전부 findCachedSearchProducts에서
+  // 그 낡은 결과를 그대로 반환해 버려 배포된 수정이 캐시 만료 전까지 전혀 반영되지 않았다.
+  it("캐시에 완전 일치 상품이 없어도 DB에 있으면 캐시 대신 그 결과로 갱신해 반환한다", async () => {
+    // 핵심 토큰 중 "팬틴"·"트리트먼트"는 있지만 "극손상케어"가 빠져 있어, rankSearchResults
+    // 관련도 기준은 통과해 캐시 자체는 "쓸 만해" 보이면서도 hasFullKeywordMatch는 실패하는,
+    // 즉 실제로 캐시가 낡았을 때와 같은 조건을 재현한다.
+    const staleCachedProduct = {
+      id: 999,
+      name: "팬틴 트리트먼트 미니 90ml",
+      currentPrice: 8_900,
+      inStock: true,
+      categoryName: null,
+      externalProductId: "9999:1:1",
+      variantLabel: "90ml",
+      isRocket: false,
+      isFreeShipping: false,
+    };
+    mocks.findCachedSearchProducts.mockResolvedValue([staleCachedProduct]);
+    mocks.searchTrackedProducts.mockResolvedValue([pantheneStoredProduct]);
+    mocks.cacheSearchProducts.mockResolvedValue(undefined);
+
+    const result = await searchCatalogSafely(pantheneKeyword);
+
+    expect(result.source).toBe("database");
+    expect(result.products).toEqual([pantheneStoredProduct]);
+    expect(mocks.invalidateCachedSearchProducts).toHaveBeenCalledWith(pantheneKeyword);
+    expect(mocks.cacheSearchProducts).toHaveBeenCalledWith(pantheneKeyword, [501]);
+    expect(mocks.searchCoupangProducts).not.toHaveBeenCalled();
+  });
+
+  it("캐시에 이미 완전 일치 상품이 있으면 DB를 다시 조회하지 않고 캐시를 그대로 사용한다", async () => {
+    mocks.findCachedSearchProducts.mockResolvedValue([pantheneStoredProduct]);
+
+    const result = await searchCatalogSafely(pantheneKeyword);
+
+    expect(result.source).toBe("cache");
+    expect(result.products).toEqual([pantheneStoredProduct]);
+    expect(mocks.searchTrackedProducts).not.toHaveBeenCalled();
+    expect(mocks.searchCoupangProducts).not.toHaveBeenCalled();
+  });
+
+  it("캐시에도 DB에도 완전 일치 상품이 없으면 기존처럼 캐시 결과를 그대로 사용한다", async () => {
+    const staleCachedProduct = {
+      id: 999,
+      name: "팬틴 트리트먼트 미니 90ml",
+      currentPrice: 8_900,
+      inStock: true,
+      categoryName: null,
+      externalProductId: "9999:1:1",
+      variantLabel: "90ml",
+      isRocket: false,
+      isFreeShipping: false,
+    };
+    mocks.findCachedSearchProducts.mockResolvedValue([staleCachedProduct]);
+    mocks.searchTrackedProducts.mockResolvedValue([]);
+
+    const result = await searchCatalogSafely(pantheneKeyword);
+
+    expect(result.source).toBe("cache");
+    expect(result.products).toEqual([staleCachedProduct]);
+    expect(mocks.invalidateCachedSearchProducts).not.toHaveBeenCalled();
+  });
+
   it("DB 저장 결과가 3개 이상이면 기존과 같이 외부 API 없이 저장 결과를 사용한다", async () => {
     const stored = [1, 2, 3].map(index => ({
       id: index,

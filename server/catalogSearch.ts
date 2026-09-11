@@ -158,7 +158,24 @@ export async function searchCatalogSafely(keyword: string, limit = 10, options: 
     const cached = await db.findCachedSearchProducts(keyword);
     if (cached !== undefined) {
       const rankedCached = removeExcludedTrackingProducts(filterStableDeliveryResults(rankSearchResults(keyword, cached)));
-      if (rankedCached.length > 0 && hasUsableStoredPrice(rankedCached)) {
+      const cacheIsUsable = rankedCached.length > 0 && hasUsableStoredPrice(rankedCached);
+      if (cacheIsUsable && hasFullKeywordMatch(keyword, rankedCached)) {
+        return { products: rankedCached, source: "cache", message: "검색어와 일치하는 저장 결과를 표시합니다." };
+      }
+      if (cacheIsUsable) {
+        // 캐시에 결과가 있어도 검색어 핵심 토큰과 완전히 일치하는 상품이 그 안에
+        // 없을 수 있다. 이 캐시는 최대 12시간(cacheSearchProducts TTL) 동안 이후의
+        // 모든 동일 검색어 요청에서 DB·외부 API 로직보다 먼저 반환되므로, 그 사이
+        // 가신 수집기로 정확히 일치하는 상품이 새로 저장돼도(또는 이번처럼 관련
+        // 로직이 배포로 수정돼도) 캐시가 만료되기 전까지는 계속 예전 결과만
+        // 보여주는 사고가 난다. 캐시를 맹신하기 전에 저장 목록에 완전 일치 상품이
+        // 있는지 한 번 더 확인하고, 있다면 그 결과로 캐시를 즉시 갱신한다.
+        const freshMatches = removeExcludedTrackingProducts(filterStableDeliveryResults(rankSearchResults(keyword, await db.searchTrackedProducts(keyword, limit))));
+        if (hasFullKeywordMatch(keyword, freshMatches) && hasUsableStoredPrice(freshMatches)) {
+          await db.invalidateCachedSearchProducts(keyword);
+          await db.cacheSearchProducts(keyword, freshMatches.map(product => product.id));
+          return { products: freshMatches, source: "database", message: "가격 추적 목록에서 찾은 최신 결과로 캐시를 갱신했습니다." };
+        }
         return { products: rankedCached, source: "cache", message: "검색어와 일치하는 저장 결과를 표시합니다." };
       }
       // 가격 데이터가 없는 캐시와 무관한 이전 응답은 최신 가격을 확인할 수 없다.
