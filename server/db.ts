@@ -2899,6 +2899,18 @@ export async function getLatestSyncRun(jobType: SyncJobType) {
   return (await db.select().from(syncRuns).where(eq(syncRuns.jobType, jobType)).orderBy(desc(syncRuns.startedAt)).limit(1))[0];
 }
 
+/**
+ * "가격 추적 성과 모니터링" 대시보드용 관측 기록일 뿐이므로, 이 기록 자체가 실패해도
+ * 호출부의 실제 가격 갱신 작업을 절대 중단시키면 안 된다. 하지만 이 함수는 예약 작업
+ * (recheckDeferredSearchProductsForPriceJob 등)의 for 루프 안에서 매 상품마다 호출되고,
+ * 그 루프 바깥에는 try/catch가 없다. 관리자가 admin/prices에서 "보류" 상품을 삭제하는
+ * 시점이 하필 예약 작업이 같은 상품(productId)을 처리 중인 순간과 겹치면, products 행이
+ * 이미 사라진 뒤라 productId FK 제약 위반으로 이 insert가 실패하고, 그 예외가 루프
+ * 전체를 중단시켜 나머지 후보 상품은 아예 처리되지 못한 채 작업 전체가 "실패·처리 상품
+ * 0개"로 끝난다(admin/prices 실패 작업 상세에서 확인된 실제 사례). 같은 이유로 이미
+ * 방어 처리된 recordCoupangRateLimitEvent와 동일하게, 여기서도 실패를 삼키고 경고만
+ * 남긴다.
+ */
 export async function recordPriceTrackingMetric(input: {
   productId?: number | null;
   runId?: number | null;
@@ -2910,15 +2922,19 @@ export async function recordPriceTrackingMetric(input: {
 }) {
   const db = await getDb();
   if (!db) return;
-  await db.insert(priceTrackingMetrics).values({
-    productId: input.productId ?? null,
-    runId: input.runId ?? null,
-    source: input.source,
-    outcome: input.outcome,
-    apiCalls: Math.max(0, Math.round(input.apiCalls)),
-    durationMs: Math.max(0, Math.round(input.durationMs)),
-    occurredAt: input.occurredAt ?? new Date(),
-  });
+  try {
+    await db.insert(priceTrackingMetrics).values({
+      productId: input.productId ?? null,
+      runId: input.runId ?? null,
+      source: input.source,
+      outcome: input.outcome,
+      apiCalls: Math.max(0, Math.round(input.apiCalls)),
+      durationMs: Math.max(0, Math.round(input.durationMs)),
+      occurredAt: input.occurredAt ?? new Date(),
+    });
+  } catch (error) {
+    console.warn(`[Price tracking metric] Failed to record metric for product ${input.productId ?? "unknown"}`, error);
+  }
 }
 
 export async function getPriceTrackingPerformanceMetrics(days = 7, now = new Date()) {
