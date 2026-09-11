@@ -1704,22 +1704,46 @@ export async function cacheSearchProducts(keyword: string, productIds: number[],
   });
 }
 
-export async function searchTrackedProducts(keyword: string, limit = 10) {
-  const db = await getDb();
-  if (!db) return [];
-  const terms = getSearchTokens(keyword);
-  if (terms.length === 0) return [];
-  // DB 후보는 핵심 토큰 하나라도 맞으면 넓게 가져오고, 최종 관련도 필터에서 브랜드·상품 유형을 다시 검증한다.
-  // 기존의 모든 토큰 AND 조건은 '150ml 2개' 같은 옵션 설명 때문에 저장된 정상 상품도 찾지 못하게 했다.
-  const conditions = terms.flatMap(term => getSearchTokenVariants(term).map(variant => or(
+/** 검색어에서 뽑은 핵심 토큰 하나가 저장 상품의 name/variantLabel/unitLabel(옵션 숫자는 quantity/packSize도)에 있는지 확인하는 조건입니다. */
+function buildSearchTermCondition(term: string) {
+  return or(...getSearchTokenVariants(term).flatMap(variant => [
     like(products.name, `%${variant}%`),
     like(products.variantLabel, `%${variant}%`),
     like(products.unitLabel, `%${variant}%`),
     ...(Number.isFinite(Number(variant))
       ? [eq(products.quantity, Number(variant)), like(products.packSize, `%${variant}%`)]
       : []),
-  )));
-  return db.select().from(products).where(and(eq(products.isActive, true), or(...conditions))).orderBy(desc(products.lastSeenAt)).limit(Math.min(Math.max(limit, 1) * 10, 100));
+  ]));
+}
+
+export async function searchTrackedProducts(keyword: string, limit = 10) {
+  const db = await getDb();
+  if (!db) return [];
+  const terms = getSearchTokens(keyword);
+  if (terms.length === 0) return [];
+  const fetchLimit = Math.min(Math.max(limit, 1) * 10, 100);
+  const termConditions = terms.map(buildSearchTermCondition);
+
+  // 핵심 토큰이 여러 개인 검색어는 모든 토큰이 겹치는 상품을 먼저 찾는다.
+  // '트리트먼트'처럼 흔한 단어 하나만 겹쳐도 넓게 가져오면, 그 단어를 쓰는 다른
+  // 브랜드 상품이 (가격 갱신 크론 등으로) 더 최근에 갱신됐다는 이유만으로
+  // lastSeenAt DESC LIMIT 안에서 실제 일치 상품을 밀어낼 수 있다. 모든 토큰이
+  // 겹치는 상품이 하나라도 있으면 그 결과만 반환해 이런 오탈락을 막는다.
+  if (termConditions.length > 1) {
+    const strictMatches = await db.select().from(products)
+      .where(and(eq(products.isActive, true), ...termConditions))
+      .orderBy(desc(products.lastSeenAt))
+      .limit(fetchLimit);
+    if (strictMatches.length > 0) return strictMatches;
+  }
+
+  // 토큰이 하나뿐이거나, 모든 토큰이 겹치는 상품이 없으면(예: '150ml 2개' 같은
+  // 옵션 설명만 있는 검색어) 토큰 하나라도 맞으면 넓게 가져오고 최종 관련도
+  // 필터(rankSearchResults)에서 브랜드·상품 유형을 다시 검증한다.
+  return db.select().from(products)
+    .where(and(eq(products.isActive, true), or(...termConditions)))
+    .orderBy(desc(products.lastSeenAt))
+    .limit(fetchLimit);
 }
 
 /** 외부 쿠팡 API를 호출하지 않고, 실제 저장 상품·성공 검색어만으로 자동완성 후보를 제공합니다. */
