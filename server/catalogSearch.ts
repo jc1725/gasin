@@ -3,7 +3,7 @@ import { getCoupangVariantKey, searchCoupangProducts } from "./coupang";
 import type { CoupangProduct } from "./coupang";
 import { CoupangRateLimitError } from "./coupangRateLimit";
 import type { CoupangApiCallType } from "./coupangRateLimit";
-import { buildSearchKeywordVariants, filterStableDeliveryResults, rankSearchResults } from "./searchRelevance";
+import { buildSearchKeywordVariants, filterStableDeliveryResults, hasFullKeywordMatch, rankSearchResults } from "./searchRelevance";
 import { notifySearchQuotaExceeded } from "./searchQuotaAlert";
 import { isExcludedTrackingCategory } from "./categoryEligibility";
 import { describeProductVariant } from "./productVariant";
@@ -168,8 +168,13 @@ export async function searchCatalogSafely(keyword: string, limit = 10, options: 
 
     const databaseMatches = await db.searchTrackedProducts(keyword, limit);
     const rankedDatabaseMatches = removeExcludedTrackingProducts(filterStableDeliveryResults(rankSearchResults(keyword, databaseMatches)));
+    // 가신 수집기로 등록된 상품처럼 DB에 1~2개만 저장돼 있어도, 검색어 전체가
+    // 상품명에 그대로 들어맞는 결과를 이미 찾았다면 "저장 결과가 부족하다"고
+    // 보지 않는다. 그렇지 않으면 매번 외부 쿠팡 API를 호출해, API가 반환하는
+    // 느슨하게만 관련된 결과가 이미 찾은 정확한 저장 상품을 완전히 대체해 버린다.
     const hasSufficientStoredCoverage = rankedDatabaseMatches.length >= Math.min(limit, MIN_STORED_RESULTS_BEFORE_EXTERNAL_SEARCH)
-      || (databaseMatches.length > rankedDatabaseMatches.length && rankedDatabaseMatches.length > 0);
+      || (databaseMatches.length > rankedDatabaseMatches.length && rankedDatabaseMatches.length > 0)
+      || hasFullKeywordMatch(keyword, rankedDatabaseMatches);
     if (hasSufficientStoredCoverage && hasUsableStoredPrice(rankedDatabaseMatches)) {
       return { products: rankedDatabaseMatches, source: "database", message: "가격 추적 목록에서 찾은 결과입니다." };
     }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { filterStableDeliveryResults, rankSearchResults } from "./searchRelevance";
+import { filterStableDeliveryResults, hasFullKeywordMatch, rankSearchResults } from "./searchRelevance";
 
 describe("rankSearchResults", () => {
   it("puts keyword-matching products ahead of unrelated API results while preserving original order on ties", () => {
@@ -152,5 +152,30 @@ describe("rankSearchResults", () => {
       { id: 2, name: "매일우유 무지방 0%, 200ml, 120개", externalProductId: "33414098:8483121623:94983884905", variantLabel: "200ml × 120개", currentPrice: 62510 },
     ]);
     expect(ranked.map(product => product.id)).toEqual([1, 2]);
+  });
+});
+
+describe("hasFullKeywordMatch", () => {
+  // 220ml, 1개 같은 옵션 토큰은 name이 아니라 variantLabel·unitLabel에 담기는 경우가
+  // 많다. 옵션까지 포함한 원문 문자열을 그대로 비교하면, 핵심 상품명이 완전히
+  // 일치하는 가신 수집기 등록 상품도 매번 불일치로 판정되어 외부 API로 덮어써진다.
+  it("옵션 토큰이 상품명에 없어도 핵심 토큰이 전부 일치하면 true를 반환한다", () => {
+    expect(hasFullKeywordMatch("팬틴 극손상케어 트리트먼트 220ml 1개", [
+      { name: "팬틴 극손상케어 트리트먼트", variantLabel: "220ml" },
+    ])).toBe(true);
+  });
+
+  it("핵심 토큰 중 하나라도 상품명에 없으면 false를 반환한다", () => {
+    expect(hasFullKeywordMatch("팬틴 극손상케어 트리트먼트 220ml 1개", [
+      { name: "팬틴 샴푸", variantLabel: "500ml" },
+    ])).toBe(false);
+  });
+
+  it("검색어에 핵심 토큰이 하나도 없으면 false를 반환한다", () => {
+    expect(hasFullKeywordMatch("220ml 1개", [{ name: "팬틴 극손상케어 트리트먼트" }])).toBe(false);
+  });
+
+  it("productName 필드만 있는 원본 쿠팡 응답 형태도 확인한다", () => {
+    expect(hasFullKeywordMatch("케라스타즈 샴푸", [{ productName: "케라스타즈 엘릭서 얼팀 샴푸 250ml" }])).toBe(true);
   });
 });

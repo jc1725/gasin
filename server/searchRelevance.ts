@@ -161,6 +161,27 @@ function removeLegacySkuDuplicates<T extends SearchableProduct>(products: T[]) {
   return result.map(item => item.product);
 }
 
+/**
+ * 검색어에서 뽑은 핵심 토큰(용량·수량 등 옵션 토큰 제외) 전부가 상품명에 들어있는지
+ * 확인한다. 용량·수량은 name이 아니라 variantLabel·unitLabel에 담기는 경우가
+ * 많으므로, 원본 검색어 문자열을 그대로 비교하면 "220ml", "1개" 같은 옵션 표기 때문에
+ * 실제로는 정확히 일치하는 상품도 매번 불일치로 판정된다. 대신 옵션을 제외한 핵심
+ * 토큰만 전부 맞는지 확인해 "검색 의도가 완전히 충족됐는지"를 본다.
+ *
+ * 가신 수집기가 등록한 상품처럼 DB 저장 개수가 적어(3개 미만) rankSearchResults의
+ * 완화 기준(토큰 60%)으로는 '충분한 저장 결과'로 인정받지 못하는 경우에도, 핵심
+ * 토큰이 전부 일치하는 상품을 이미 찾았다면 외부 쿠팡 API 결과로 덮어쓰지 않고
+ * 그 저장 결과를 그대로 신뢰해도 된다는 신호로 쓰인다.
+ */
+export function hasFullKeywordMatch<T extends SearchableProduct>(keyword: string, products: T[]) {
+  const tokens = getSearchTokens(keyword);
+  if (tokens.length === 0) return false;
+  return products.some(product => {
+    const name = normalize(product.name ?? product.productName);
+    return tokens.every(token => getSearchTokenVariants(token).some(variant => name.includes(variant)));
+  });
+}
+
 /** 배송 태그가 있는 결과가 하나라도 있으면 안정 배송 상품만 노출하고, 태그가 전혀 없을 때만 전체 관련 결과로 폴백한다. */
 export function filterStableDeliveryResults<T extends SearchableProduct>(products: T[]) {
   const stableDeliveryProducts = products.filter(product => product.isRocket === true || product.isFreeShipping === true);
