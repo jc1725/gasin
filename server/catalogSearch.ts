@@ -148,6 +148,20 @@ function removeExcludedTrackingProducts<T extends { categoryName?: string | null
   return products.filter(product => !isExcludedTrackingCategory({ categoryName: product.categoryName, name: product.name, productName: product.productName }));
 }
 
+/**
+ * 사용자가 같은 검색어를 다시 검색하면 프런트엔드가 "새로고침"으로 보고 refresh: true를
+ * 보내고, 이는 forceExternal로 이어져 캐시·DB 커버리지 판단(hasFullKeywordMatch 포함,
+ * 위 세 차례의 수정 전부)을 완전히 건너뛴 채 라이브 쿠팡 검색 API 결과만으로 응답한다.
+ * 문제는 쿠팡 자체 검색 랭킹이 가신 수집기로 등록한 낱개 상품보다 묶음/세트 상품을
+ * 훨씬 우선하는 경우가 흔하다는 것 — 그러면 방금 전 첫 검색에서는 보이던 정확한 상품이
+ * "다시 검색"을 누르는 순간 사라진다. forceExternal이어도 이미 추적 중인 완전 일치
+ * 상품이 있다면 라이브 응답에서 사라지지 않도록 별도로 확인해 되살린다.
+ */
+async function findExactTrackedMatchForForcedRefresh(keyword: string, limit: number) {
+  const trackedMatches = removeExcludedTrackingProducts(rankSearchResults(keyword, await db.searchTrackedProducts(keyword, limit)));
+  return trackedMatches.find(product => hasFullKeywordMatch(keyword, [product]) && hasUsableStoredPrice([product]));
+}
+
 export async function searchCatalogSafely(keyword: string, limit?: number, options?: { forceExternal?: boolean; callType?: CoupangApiCallType; persistNewResults?: true }): Promise<CatalogSearchResult>;
 export async function searchCatalogSafely(keyword: string, limit: number | undefined, options: { forceExternal?: boolean; callType?: CoupangApiCallType; persistNewResults: false }): Promise<LazyCatalogSearchResult>;
 export async function searchCatalogSafely(keyword: string, limit = 10, options: { forceExternal?: boolean; callType?: CoupangApiCallType; persistNewResults?: boolean } = {}): Promise<CatalogSearchResult | LazyCatalogSearchResult> {
@@ -219,10 +233,16 @@ export async function searchCatalogSafely(keyword: string, limit = 10, options: 
         relevantResults = removeExcludedTrackingProducts(filterStableDeliveryResults(rankSearchResults(searchKeyword, results), searchKeyword));
       }
     }
+    const shouldProtectTrackedExactMatch = callType === "product-search" && options.forceExternal === true;
+
     if (relevantResults.length === 0) {
       // 쿠팡이 검색어와 무관한 기본 상품을 반환하는 경우가 있다. 이런 응답은
       // 가격 추적 목록과 검색 캐시에 남기지 않고, 다음 검색에서 다시 공식 조회할 수 있게 한다.
       await db.invalidateCachedSearchProducts(keyword);
+      const exactTrackedMatch = shouldProtectTrackedExactMatch ? await findExactTrackedMatchForForcedRefresh(keyword, limit) : undefined;
+      if (exactTrackedMatch) {
+        return { products: [exactTrackedMatch], source: "database", message: "쿠팡 최신 검색 결과가 없어 추적 중인 정확한 상품을 표시합니다." };
+      }
       if (databaseFallback.length > 0) {
         return {
           products: databaseFallback,
@@ -244,7 +264,13 @@ export async function searchCatalogSafely(keyword: string, limit = 10, options: 
       // 실제로 방문자가 클릭(상세 열람·찜)하기 전에는 DB에 아무것도 남기지 않는다.
       // 재검색 시 쿠팡 API를 또 부르지 않도록 원본 응답만 짧게 캐시해 둔다.
       cacheRawSearchResults(keyword, relevantResults);
-      const ephemeral = relevantResults.map(item => toEphemeralSearchProduct(keyword, item));
+      const ephemeral: LazyCatalogSearchResult["products"] = relevantResults.map(item => toEphemeralSearchProduct(keyword, item));
+      if (shouldProtectTrackedExactMatch) {
+        const exactTrackedMatch = await findExactTrackedMatchForForcedRefresh(keyword, limit);
+        if (exactTrackedMatch && !ephemeral.some(item => item.externalProductId === exactTrackedMatch.externalProductId)) {
+          ephemeral.unshift(exactTrackedMatch);
+        }
+      }
       if (ephemeral.length === 0 && callType === "product-search") await db.recordMissingSearch(keyword);
       return {
         products: ephemeral,
@@ -256,7 +282,13 @@ export async function searchCatalogSafely(keyword: string, limit = 10, options: 
     }
 
     const stored = await db.upsertCoupangProducts(relevantResults, "search");
-    const ranked = removeExcludedTrackingProducts(filterStableDeliveryResults(rankSearchResults(keyword, stored), keyword));
+    let ranked = removeExcludedTrackingProducts(filterStableDeliveryResults(rankSearchResults(keyword, stored), keyword));
+    if (shouldProtectTrackedExactMatch) {
+      const exactTrackedMatch = await findExactTrackedMatchForForcedRefresh(keyword, limit);
+      if (exactTrackedMatch && !ranked.some(product => product.externalProductId === exactTrackedMatch.externalProductId)) {
+        ranked = [exactTrackedMatch, ...ranked];
+      }
+    }
     await reuseAffiliateUrlsFromSearch(ranked);
     await db.cacheSearchProducts(keyword, ranked.map(product => product.id));
     if (ranked.length === 0 && callType === "product-search") await db.recordMissingSearch(keyword);
