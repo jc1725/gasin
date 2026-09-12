@@ -1087,16 +1087,53 @@ export async function importAdminConfirmedPrices(userId: number, rows: UserConfi
   return { importedCount, duplicateCount, unmatchedRows };
 }
 
+/**
+ * 관리자가 "확인 가격"을 저장하면 개인 확인 이력(userConfirmedPrices)에만 남고 정작
+ * 카드에 보이는 현재가·최저가·마지막 확인(products 테이블)은 전혀 갱신되지 않아 "저장해도
+ * 안 바뀐다"는 문제가 있었다. 이 함수가 관리자가 자동 추적 실패·정체 시 가격을 수동으로
+ * 바로잡는 용도로 쓰이므로, 확인 이력 기록과 함께 products.currentPrice/lowestPrice/
+ * lastSeenAt과 가격 이력(priceHistory)도 함께 갱신한다(수집기 관측 반영 로직과 동일한 패턴).
+ * 더 최신 관측(수집기·검색 등)이 이미 반영된 뒤라면 그 최신 관측을 덮어쓰지 않는다.
+ */
 export async function saveAdminConfirmedPrice(userId: number, productId: number, price: number, checkedAt: Date, note: string | null) {
   const db = await getDb();
   if (!db) throw new Error("Database is unavailable");
-  const product = (await db.select({ id: products.id, affiliateUrl: products.affiliateUrl }).from(products).where(and(eq(products.id, productId), eq(products.isActive, true))).limit(1))[0];
-  if (!product) return { matched: false as const };
-  const sourceUrl = product.affiliateUrl;
-  const importKey = createHash("sha256").update([userId, productId, checkedAt.toISOString(), price, sourceUrl].join("\u001f"), "utf8").digest("hex");
-  const result = await db.insert(userConfirmedPrices).values({ userId, productId, price, checkedAt, sourceUrl, note, importKey }).onDuplicateKeyUpdate({ set: { importKey } });
-  const affectedRows = getAffectedRows(result);
-  return { matched: true as const, importedCount: affectedRows === 1 ? 1 : 0, duplicateCount: affectedRows === 1 ? 0 : 1 };
+  return db.transaction(async tx => {
+    const product = (await tx.select().from(products).where(and(eq(products.id, productId), eq(products.isActive, true))).limit(1))[0];
+    if (!product) return { matched: false as const };
+    const sourceUrl = product.affiliateUrl;
+    const importKey = createHash("sha256").update([userId, productId, checkedAt.toISOString(), price, sourceUrl].join("\u001f"), "utf8").digest("hex");
+    const result = await tx.insert(userConfirmedPrices).values({ userId, productId, price, checkedAt, sourceUrl, note, importKey }).onDuplicateKeyUpdate({ set: { importKey } });
+    const affectedRows = getAffectedRows(result);
+
+    const latestPriceObservationAt = product.wowMemberPriceObservedAt ?? product.lastSeenAt;
+    if (checkedAt.getTime() >= latestPriceObservationAt.getTime()) {
+      await tx.update(products).set({
+        currentPrice: price,
+        lowestPrice: product.lowestPrice > 0 ? Math.min(product.lowestPrice, price) : price,
+        inStock: true,
+        lastSeenAt: checkedAt,
+        refreshState: "fresh",
+        lastRefreshAttemptAt: null,
+        nextRefreshAt: null,
+        lastRefreshReason: "관리자 수동 확인 가격 반영",
+        wowMemberPrice: price,
+        wowMemberPriceObservedAt: checkedAt,
+        ...(product.deepLinkStatus === "failed" ? { deepLinkStatus: "pending" as const, deepLinkUrl: null, deepLinkFailureReason: null, deepLinkUpdatedAt: new Date() } : {}),
+      }).where(eq(products.id, productId));
+
+      const duplicateObservation = (await tx
+        .select({ id: priceHistory.id })
+        .from(priceHistory)
+        .where(and(eq(priceHistory.productId, productId), eq(priceHistory.price, price), eq(priceHistory.recordedAt, checkedAt)))
+        .limit(1)).length > 0;
+      if (!duplicateObservation) {
+        await tx.insert(priceHistory).values({ productId, price, recordedAt: checkedAt });
+      }
+    }
+
+    return { matched: true as const, importedCount: affectedRows === 1 ? 1 : 0, duplicateCount: affectedRows === 1 ? 0 : 1 };
+  });
 }
 
 export async function listLatestAdminConfirmedPrices(userId: number, productIds: number[]) {
