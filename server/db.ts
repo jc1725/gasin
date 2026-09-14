@@ -224,6 +224,18 @@ function getComparableKoreanTokens(value: string) {
     .filter(token => !GENERIC_COLLECTION_OPTION_TOKENS.has(token));
 }
 
+/**
+ * "문장형 옵션인지"(3개 이상의 고유 단어로 된 서술형 텍스트)를 판단할 때만 쓰는 한글 전용 토큰.
+ * "MFHP4KH/A"처럼 숫자가 섞인 영문 모델 코드는 getComparableKoreanTokens의 [가-힣a-z]{2,} 정규식이
+ * 숫자에서 끊어 "mfhp"+"kh" 같은 조각 여러 개로 쪼개는데, 이 조각들은 실제로는 단어가 아니라 모델
+ * 코드 일부이므로 "다른 상품의 서술형 옵션 텍스트"라는 신호가 될 수 없다. 문장 여부 판단에서는
+ * 한글 토큰만 센다(영문 조각은 아래 overlap 비교에는 여전히 포함해 정상적인 영문 옵션 단어 매칭은 유지).
+ */
+function getComparableKoreanOnlyTokens(value: string) {
+  return (value.toLocaleLowerCase("ko-KR").match(/[가-힣]{2,}/g) ?? [])
+    .filter(token => !GENERIC_COLLECTION_OPTION_TOKENS.has(token));
+}
+
 /** 수집기가 이전 페이지의 옵션 텍스트를 보내는 경우, 다른 상품의 구성 정보가 현재 SKU를 덮어쓰지 않도록 막는다. */
 export function isCollectedOptionMetadataCompatible(productName: string, optionName: string | null) {
   if (!optionName) return true;
@@ -233,8 +245,9 @@ export function isCollectedOptionMetadataCompatible(productName: string, optionN
   if (optionTokens.length === 0) return true;
   // "혼합색상 × 20cm × 1개"처럼 구성만 담긴 짧은 옵션은 제품명과 단어를 공유하지 않아도
   // 안전하다. 반면 세 개 이상의 고유 단어로 된 문장형 옵션은 다른 상품명일 가능성이 높으므로
-  // 현재 상품명과 의미 있는 단어를 공유할 때만 적용한다.
-  if (optionTokens.length < 3) return true;
+  // 현재 상품명과 의미 있는 단어를 공유할 때만 적용한다. "문장형인지"는 한글 토큰 수로만
+  // 판단한다("MFHP4KH/A" 같은 영문 모델 코드가 숫자에서 쪼개져 단어 수를 부풀리는 것을 방지).
+  if (getComparableKoreanOnlyTokens(optionName).length < 3) return true;
   return optionTokens.some(token => productTokens.has(token));
 }
 

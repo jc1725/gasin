@@ -73,6 +73,13 @@ describe("collector product auto-upsert", () => {
     expect(db).toContain("variantLabel: optionName && canReplaceMetadata ? optionName : current.variantLabel");
   });
 
+  it("does not reject a real option just because an alphanumeric model code splits into several word-like fragments", () => {
+    // "MFHP4KH/A"는 숫자에서 끊겨 "mfhp"+"kh" 두 조각으로 잡혀 "화이트"와 합쳐 단어 3개로
+    // 잘못 집계될 수 있었다(문장형 옵션으로 오인해 거부). 모델 코드 조각은 한글이 아니므로
+    // "문장형인지" 판단에서 빠져야 정상 옵션(같은 정확 SKU에서 실제로 관측된 값)이 반영된다.
+    expect(isCollectedOptionMetadataCompatible("Apple 2025 에어팟 프로 3 USB-C 블루투스 이어폰", "MFHP4KH/A, 화이트")).toBe(true);
+  });
+
   it("recovers only a failed exact SKU link after a newer collector observation without reusing an old link", () => {
     expect(db).toContain('...(current.deepLinkStatus === "failed" ? { deepLinkStatus: "pending" as const, deepLinkUrl: null, deepLinkFailureReason: null, deepLinkUpdatedAt: new Date() } : {}),');
     expect(db).toContain('if (item.collectedAt.getTime() <= latestPriceObservationAt.getTime())');
