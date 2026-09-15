@@ -440,11 +440,20 @@ export async function recordCollectedPriceItems(items: CollectedPriceInput[]) {
       const collectionKey = getCollectedProductKey(item);
       const collectedExactSkuUrl = getCollectedExactSkuUrl(item);
       const collectionName = item.name.trim() || `수집 상품 ${item.productId}`;
+      // 수집기가 보낸 원본 값 — products 반영 여부와 무관하게 collectedPriceHistory에는
+      // 항상 이 값을 그대로 남긴다. isCollectedOptionMetadataCompatible이 (버그로든 정상
+      // 판단으로든) 거부하더라도 원본 관측 로그 자체는 보존해서, 나중에 판단 기준이
+      // 바뀌었을 때 과거 데이터를 다시 열람하지 않고도 이 로그에서 재계산(backfill)할 수
+      // 있게 한다. 실제로 2026-09-14 옵션 오탐 버그 때 원본 값이 저장 전에 이미 버려져
+      // 있어서 재수집 없이는 복구가 불가능했던 것을 계기로 분리했다.
       const receivedOptionName = item.optionName?.trim() || null;
+      const receivedCapacityText = item.capacityText?.trim() || null;
+      const receivedQuantity = Number.isSafeInteger(item.quantity) && (item.quantity ?? 0) > 0 ? item.quantity! : null;
+      const receivedPackSize = extractPackSizeFromOptionName(receivedOptionName);
       const collectedOptionIsCompatible = isCollectedOptionMetadataCompatible(collectionName, receivedOptionName);
       const optionName = collectedOptionIsCompatible ? receivedOptionName : null;
-      const capacityText = collectedOptionIsCompatible ? item.capacityText?.trim() || null : null;
-      const quantity = collectedOptionIsCompatible && Number.isSafeInteger(item.quantity) && (item.quantity ?? 0) > 0 ? item.quantity! : null;
+      const capacityText = collectedOptionIsCompatible ? receivedCapacityText : null;
+      const quantity = collectedOptionIsCompatible ? receivedQuantity : null;
       const packSize = extractPackSizeFromOptionName(optionName);
       const effectivePrice = Number.isSafeInteger(item.price) && (item.price ?? 0) > 0 ? item.price! : 0;
       const collectionVariant = describeProductVariant(`${collectionName} ${optionName ?? ""}`, effectivePrice, item.pageType);
@@ -458,10 +467,10 @@ export async function recordCollectedPriceItems(items: CollectedPriceInput[]) {
         price: effectivePrice || null,
         url: collectedExactSkuUrl,
         imageUrl: item.imageUrl?.trim() || null,
-        optionName,
-        capacityText,
-        quantity,
-        packSize,
+        optionName: receivedOptionName,
+        capacityText: receivedCapacityText,
+        quantity: receivedQuantity,
+        packSize: receivedPackSize,
         inStock: item.inStock,
         pageType: item.pageType,
         source: item.source,
