@@ -2222,6 +2222,41 @@ export async function getDeferredSearchProducts(limit = 24) {
     .limit(Math.min(Math.max(limit, 1), 24));
 }
 
+export const EXTENSION_AUTO_REVISIT_MAX_LIMIT = 30;
+
+/**
+ * 가신 수집기(크롬 확장)의 "백그라운드 자동 순회" 기능이 다음에 방문할 collection
+ * 소스 상품 후보를 골라준다. search/goldbox 상품과 달리 collection 상품은 쿠팡
+ * Partners API로 정확 SKU를 직접 재조회할 방법이 없어서(검색/골드박스/베스트카테고리
+ * 피드만 제공됨), 서버가 스스로 최신 가격을 확인할 수 없다 — 누군가 그 상품 페이지를
+ * 다시 "방문"해야만(가신 수집기가 관측을 보내야만) 가격이 갱신된다.
+ *
+ * 이 함수는 그 방문을 확장 프로그램이 자동으로 대신할 수 있도록, 가장 오래 확인되지
+ * 않은(lastSeenAt이 가장 옛날인) 순서로 후보를 내려준다. minStaleMs 안에 이미 확인된
+ * 상품은 제외해서, 같은 상품을 너무 자주 재방문하지 않도록 한다.
+ */
+export async function getStaleCollectionProductsForExtensionRevisit(limit: number, minStaleMs: number) {
+  const db = await getDb();
+  if (!db) return [];
+  const staleBefore = new Date(Date.now() - Math.max(minStaleMs, 0));
+  return db
+    .select({
+      id: products.id,
+      externalProductId: products.externalProductId,
+      name: products.name,
+      url: products.affiliateUrl,
+      lastSeenAt: products.lastSeenAt,
+    })
+    .from(products)
+    .where(and(
+      eq(products.source, "collection"),
+      eq(products.isActive, true),
+      lt(products.lastSeenAt, staleBefore),
+    ))
+    .orderBy(asc(products.lastSeenAt))
+    .limit(Math.min(Math.max(limit, 1), EXTENSION_AUTO_REVISIT_MAX_LIMIT));
+}
+
 /** 관리자 화면에 외부 cron이 실제 처리할 수 있는 보류 검색 상품 수를 제공합니다. */
 export async function getExternalCronRecheckSummary(now = new Date()) {
   const db = await getDb();

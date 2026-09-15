@@ -104,6 +104,31 @@ export function registerCollectionRoutes(app: Express) {
     }
   });
 
+  // 가신 수집기의 "백그라운드 자동 순회" 기능이 다음에 방문할 collection 소스 상품
+  // 후보를 요청하는 엔드포인트. /api/collect와 같은 Bearer 토큰으로 인증한다.
+  app.get("/api/collect/candidates", async (request, response) => {
+    if (!authorize(request, response)) return;
+    const limitRaw = Number(request.query.limit);
+    const limit = Number.isFinite(limitRaw) ? limitRaw : 20;
+    const minStaleHoursRaw = Number(request.query.minStaleHours);
+    const minStaleHours = Number.isFinite(minStaleHoursRaw) ? minStaleHoursRaw : 6;
+    const clampedMinStaleHours = Math.min(Math.max(minStaleHours, 1), 24 * 7);
+    try {
+      const candidates = await db.getStaleCollectionProductsForExtensionRevisit(limit, clampedMinStaleHours * 60 * 60 * 1000);
+      response.json({
+        candidates: candidates.map(candidate => ({
+          externalProductId: candidate.externalProductId,
+          name: candidate.name,
+          url: candidate.url,
+          lastSeenAt: candidate.lastSeenAt,
+        })),
+      });
+    } catch (error) {
+      console.error("[Collect API] Failed to load auto-revisit candidates", error);
+      response.status(500).json({ error: "Failed to load auto-revisit candidates" });
+    }
+  });
+
   app.get("/api/prices/:productId", async (request, response) => {
     if (!authorize(request, response)) return;
     const productId = request.params.productId?.trim();
