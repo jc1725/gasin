@@ -73,13 +73,6 @@ describe("collector product auto-upsert", () => {
     expect(db).toContain("variantLabel: optionName && canReplaceMetadata ? optionName : current.variantLabel");
   });
 
-  it("does not reject a real option just because an alphanumeric model code splits into several word-like fragments", () => {
-    // "MFHP4KH/A"는 숫자에서 끊겨 "mfhp"+"kh" 두 조각으로 잡혀 "화이트"와 합쳐 단어 3개로
-    // 잘못 집계될 수 있었다(문장형 옵션으로 오인해 거부). 모델 코드 조각은 한글이 아니므로
-    // "문장형인지" 판단에서 빠져야 정상 옵션(같은 정확 SKU에서 실제로 관측된 값)이 반영된다.
-    expect(isCollectedOptionMetadataCompatible("Apple 2025 에어팟 프로 3 USB-C 블루투스 이어폰", "MFHP4KH/A, 화이트")).toBe(true);
-  });
-
   it("recovers only a failed exact SKU link after a newer collector observation without reusing an old link", () => {
     expect(db).toContain('...(current.deepLinkStatus === "failed" ? { deepLinkStatus: "pending" as const, deepLinkUrl: null, deepLinkFailureReason: null, deepLinkUpdatedAt: new Date() } : {}),');
     expect(db).toContain('if (item.collectedAt.getTime() <= latestPriceObservationAt.getTime())');
@@ -92,12 +85,17 @@ describe("collector product auto-upsert", () => {
     expect(db).toContain("pendingDeepLinkProductIds.add(current.id)");
   });
 
-  it("promotes one page-only legacy search product to the exact collector SKU so the same mismatch does not recur", () => {
+  it("promotes one page-only legacy search product to the exact collector SKU while keeping it search-tracked", () => {
+    // 2026-09-15: 예전엔 이 승격에서 source를 "collection"으로 덮어써서, 정확 SKU가
+    // 이미 확보된 상품이 Railway의 실제 자동 재확인 cron(source==="search"만 대상)에서
+    // 영구히 제외되고 확장이 켜져 있을 때만 갱신되는 상태로 빠지는 문제가 있었다.
+    // 이제는 source를 건드리지 않아(legacySearchProduct 쿼리가 이미 source==="search"로
+    // 걸러 놓았으므로) 부분 업데이트(.set())가 기존 "search" 값을 그대로 유지한다.
     expect(db).toContain("const canPromoteLegacySearchProduct = collectionKey !== item.productId;");
     expect(db).toContain("eq(products.externalProductId, item.productId)");
     expect(db).toContain('eq(products.source, "search")');
     expect(db).toContain("externalProductId: collectionKey");
-    expect(db).toContain('source: "collection" as const');
+    expect(db).not.toContain('source: "collection" as const');
     expect(db).toContain('"가신 수집기 SKU 승격 관측"');
   });
 

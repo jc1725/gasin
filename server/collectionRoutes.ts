@@ -26,6 +26,16 @@ const collectBodySchema = z.object({
   }).strict()).min(1).max(100),
 }).strict();
 
+const goneReportBodySchema = z.object({
+  source: z.literal("gasyn-extension"),
+  productId: z.string().trim().regex(/^\d+$/).max(80),
+  itemId: z.string().trim().regex(/^\d+$/).max(80).optional(),
+  vendorItemId: z.string().trim().regex(/^\d+$/).max(80).optional(),
+  url: z.string().url().max(4_000),
+  message: z.string().trim().min(1).max(500),
+  detectedAt: z.string().datetime({ offset: true }).optional(),
+}).strict();
+
 function applyCors(request: Request, response: Response) {
   const origin = request.header("origin") ?? "";
   response.setHeader("X-Gasyn-Collect-Schema-Version", "2");
@@ -104,8 +114,11 @@ export function registerCollectionRoutes(app: Express) {
     }
   });
 
-  // 가신 수집기의 "백그라운드 자동 순회" 기능이 다음에 방문할 collection 소스 상품
-  // 후보를 요청하는 엔드포인트. /api/collect와 같은 Bearer 토큰으로 인증한다.
+  // 가신 수집기의 "백그라운드 자동 순회" 기능이 다음에 방문할 상품 후보를 요청하는
+  // 엔드포인트. /api/collect와 같은 Bearer 토큰으로 인증한다. collection 소스뿐
+  // 아니라 goldbox·bestcategory 소스도 포함한다 — db.getStaleTrackedProductsForExtensionRevisit
+  // 주석 참고(2026-09-15: 이 두 소스가 refreshTrackedPrices 미연결로 사실상 방치돼
+  // 있던 것을 확인해 포함시킴).
   app.get("/api/collect/candidates", async (request, response) => {
     if (!authorize(request, response)) return;
     const limitRaw = Number(request.query.limit);
@@ -114,7 +127,7 @@ export function registerCollectionRoutes(app: Express) {
     const minStaleHours = Number.isFinite(minStaleHoursRaw) ? minStaleHoursRaw : 6;
     const clampedMinStaleHours = Math.min(Math.max(minStaleHours, 1), 24 * 7);
     try {
-      const candidates = await db.getStaleCollectionProductsForExtensionRevisit(limit, clampedMinStaleHours * 60 * 60 * 1000);
+      const candidates = await db.getStaleTrackedProductsForExtensionRevisit(limit, clampedMinStaleHours * 60 * 60 * 1000);
       response.json({
         candidates: candidates.map(candidate => ({
           externalProductId: candidate.externalProductId,
@@ -126,6 +139,29 @@ export function registerCollectionRoutes(app: Express) {
     } catch (error) {
       console.error("[Collect API] Failed to load auto-revisit candidates", error);
       response.status(500).json({ error: "Failed to load auto-revisit candidates" });
+    }
+  });
+
+  // 가신 수집기가 방문한 상품 페이지가 "삭제/만료된 상품"으로 판단되면 보고받는
+  // 엔드포인트. /api/collect와 같은 Bearer 토큰으로 인증한다. 하드 삭제가 아니라
+  // isActive: false 비활성화만 수행한다(db.deactivateProductsReportedGoneByExtension
+  // 참고 — 확장의 DOM 휴리스틱 오탐 가능성 때문에 되돌릴 수 있게 남겨둠).
+  app.post("/api/collect/gone", async (request, response) => {
+    if (!authorize(request, response)) return;
+    const parsed = goneReportBodySchema.safeParse(request.body);
+    if (!parsed.success) {
+      response.status(400).json({ error: "Invalid gone-report payload", details: parsed.error.flatten() });
+      return;
+    }
+    try {
+      const result = await db.deactivateProductsReportedGoneByExtension(parsed.data);
+      if (result.deactivatedCount > 0) {
+        console.log(`[Collect API] 삭제 상품 보고로 ${result.deactivatedCount}개 비활성화: ${result.deactivated.map(item => item.externalProductId).join(", ")}`);
+      }
+      response.status(200).json({ ok: true, ...result });
+    } catch (error) {
+      console.error("[Collect API] Failed to deactivate gone product", error);
+      response.status(500).json({ error: "Failed to deactivate gone product" });
     }
   });
 

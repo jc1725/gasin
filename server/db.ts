@@ -487,6 +487,16 @@ export async function recordCollectedPriceItems(items: CollectedPriceInput[]) {
         // 과거 Search API가 pageKey만 저장한 상품은 정확한 옵션을 선택할 수 없어
         // 24시간마다 같은 SKU 미일치가 반복될 수 있다. 수집기가 한 번이라도
         // itemId/vendorItemId를 전달하면 해당 단일 레거시 행을 정확 SKU로 승격한다.
+        // 2026-09-15: 이 승격에서 source는 "search"로 그대로 둔다(예전엔 "collection"으로
+        // 덮어썼음). source가 "collection"이 되면 Railway의 실제 자동 재확인 cron
+        // (refreshDeferredSearchPrices, source==="search"만 대상)에서 영구히 제외돼
+        // 확장이 켜져 있을 때만 갱신되는 상태로 남는다 — 정확 SKU가 이미 확보된
+        // 상품을 굳이 그렇게 만들 이유가 없다. search로 유지해도 안전한 이유: 재확인
+        // 시도가 공식 Search API에서 이 정확 SKU를 못 찾더라도(옵션이 검색 결과 상위에
+        // 잘 안 뜨는 경우가 흔함) hasTrustedExtensionSkuObservation()이 최근 7일 안의
+        // 수집기 관측(wowMemberPriceObservedAt)이 있으면 "collector_trusted"로 처리해
+        // refreshState를 fresh로 되돌리므로, 이번 승격 시 함께 기록하는
+        // wowMemberPrice/wowMemberPriceObservedAt이 안전망 역할을 한다.
         const canPromoteLegacySearchProduct = collectionKey !== item.productId;
         const legacySearchProduct = canPromoteLegacySearchProduct
           ? (await tx.select().from(products).where(and(
@@ -510,7 +520,9 @@ export async function recordCollectedPriceItems(items: CollectedPriceInput[]) {
             quantity: collectedOptionIsCompatible && quantity ? quantity : legacySearchProduct.quantity,
             packSize: collectedOptionIsCompatible && packSize ? packSize : legacySearchProduct.packSize,
             optionMetadataSource: collectedOptionIsCompatible ? "collection" as const : legacySearchProduct.optionMetadataSource,
-            source: "collection" as const,
+            // source는 명시적으로 넣지 않는다 — legacySearchProduct는 위 쿼리에서
+            // 이미 eq(products.source, "search")로 걸러졌으므로, 여기서 생략하면
+            // (Drizzle의 .set()은 부분 업데이트) 기존 "search" 값이 그대로 유지된다.
             refreshState: "fresh" as const,
             lastRefreshReason: item.inStock ? "가신 수집기 SKU 승격 관측" : "가신 수집기 SKU 승격 품절 관측",
             lastRefreshAttemptAt: null,
@@ -2225,17 +2237,32 @@ export async function getDeferredSearchProducts(limit = 24) {
 export const EXTENSION_AUTO_REVISIT_MAX_LIMIT = 30;
 
 /**
- * 가신 수집기(크롬 확장)의 "백그라운드 자동 순회" 기능이 다음에 방문할 collection
- * 소스 상품 후보를 골라준다. search/goldbox 상품과 달리 collection 상품은 쿠팡
- * Partners API로 정확 SKU를 직접 재조회할 방법이 없어서(검색/골드박스/베스트카테고리
- * 피드만 제공됨), 서버가 스스로 최신 가격을 확인할 수 없다 — 누군가 그 상품 페이지를
- * 다시 "방문"해야만(가신 수집기가 관측을 보내야만) 가격이 갱신된다.
+ * 가신 수집기(크롬 확장)의 "백그라운드 자동 순회" 기능이 다음에 방문할 상품 후보를
+ * 골라준다. 원래는 collection 소스 전용이었다: collection 상품은 쿠팡 Partners API로
+ * 정확 SKU를 직접 재조회할 방법이 없어서(검색/골드박스/베스트카테고리 피드만 제공됨),
+ * 서버가 스스로 최신 가격을 확인할 수 없다 — 누군가 그 상품 페이지를 다시
+ * "방문"해야만(가신 수집기가 관측을 보내야만) 가격이 갱신된다.
  *
- * 이 함수는 그 방문을 확장 프로그램이 자동으로 대신할 수 있도록, 가장 오래 확인되지
- * 않은(lastSeenAt이 가장 옛날인) 순서로 후보를 내려준다. minStaleMs 안에 이미 확인된
- * 상품은 제외해서, 같은 상품을 너무 자주 재방문하지 않도록 한다.
+ * 2026-09-15: goldbox·bestcategory 소스도 실질적으로 같은 문제를 겪고 있는 것을
+ * 확인해서 포함시켰다. `refreshTrackedPrices()`에 "가장 오래 확인 안 된 goldbox 상품을
+ * 오늘자 골드박스 응답과 대조해 갱신"하는 로직이 있었지만, 이 함수가 실제 cron
+ * 라우트(`/api/scheduled/price`)에 전혀 연결돼 있지 않고 테스트에서만 호출되고
+ * 있었다 — 즉 운영에서는 한 번도 실행된 적이 없는 죽은 코드였다. 그 결과
+ * goldbox·bestcategory 상품은 "오늘 그 SKU가 공식 골드박스/베스트카테고리 피드에
+ * 우연히 다시 뜨는" 경우가 아니면 재확인될 방법이 전혀 없었다(운영 데이터 확인 기준
+ * goldbox 397개 중 254개, bestcategory 149개 중 128개가 2일 이상 미확인 — collection보다
+ * 오히려 방치 비율이 높았음). 죽은 코드를 되살리는 대신, 이미 검증된 확장 자동 순회
+ * 경로에 이 두 소스도 함께 태우는 쪽을 택했다 — 어차피 근본 원인(정확 SKU를 직접
+ * 재조회하는 공식 API가 없음)이 collection과 동일하기 때문이다.
+ *
+ * 이 함수는 그 방문을 확장 프로그램이 자동으로 대신할 수 있도록, 대상 소스 전체를
+ * 통틀어 가장 오래 확인되지 않은(lastSeenAt이 가장 옛날인) 순서로 후보를 내려준다.
+ * minStaleMs 안에 이미 확인된 상품은 제외해서, 같은 상품을 너무 자주 재방문하지
+ * 않도록 한다.
  */
-export async function getStaleCollectionProductsForExtensionRevisit(limit: number, minStaleMs: number) {
+const EXTENSION_AUTO_REVISIT_SOURCES = ["collection", "goldbox", "bestcategory"] as const;
+
+export async function getStaleTrackedProductsForExtensionRevisit(limit: number, minStaleMs: number) {
   const db = await getDb();
   if (!db) return [];
   const staleBefore = new Date(Date.now() - Math.max(minStaleMs, 0));
@@ -2249,12 +2276,55 @@ export async function getStaleCollectionProductsForExtensionRevisit(limit: numbe
     })
     .from(products)
     .where(and(
-      eq(products.source, "collection"),
+      inArray(products.source, EXTENSION_AUTO_REVISIT_SOURCES),
       eq(products.isActive, true),
       lt(products.lastSeenAt, staleBefore),
     ))
     .orderBy(asc(products.lastSeenAt))
     .limit(Math.min(Math.max(limit, 1), EXTENSION_AUTO_REVISIT_MAX_LIMIT));
+}
+
+/**
+ * 가신 수집기가 방문한 상품 페이지가 "삭제/만료된 상품"으로 보인다고 보고하면,
+ * 해당 상품(들)을 isActive: false로 비활성화한다. 하드 삭제가 아니라 소프트
+ * 비활성화인 이유: 이 판정은 확장의 DOM 휴리스틱(페이지 문구 감지)에 의존하므로
+ * 오탐(쿠팡 쪽 일시적 오류 페이지, 렌더링 지연 등을 진짜 삭제로 오인) 가능성이
+ * 있고, isActive: false는 가격 이력·즐겨찾기 연결을 보존한 채 목록에서만 빠지게
+ * 하므로 필요하면 되돌릴 수 있다(다른 비활성화 경로들과 동일한 패턴 — 예:
+ * mergeDuplicateProductsForAdmin, supersedeSearchSkusWithCollectorObservation).
+ *
+ * itemId·vendorItemId를 둘 다 알면(확장이 방문한 URL의 쿼리스트링에서 읽음) 그
+ * 정확 SKU 한 행만 비활성화한다. 둘 중 하나라도 없으면(상품 자체가 없어서 옵션
+ * 정보를 아예 못 읽은 경우) 같은 productId를 가진 모든 활성 SKU 행을 비활성화한다
+ * — 상품 자체가 사라졌다면 그 밑의 모든 옵션도 함께 사라진 것으로 본다.
+ */
+export async function deactivateProductsReportedGoneByExtension(params: {
+  productId: string;
+  itemId?: string | null;
+  vendorItemId?: string | null;
+  message: string;
+}) {
+  const db = await getDb();
+  if (!db) return { deactivatedCount: 0, deactivated: [] as { id: number; externalProductId: string }[] };
+
+  const reason = `가신 수집기: 상품 페이지에서 "${params.message.slice(0, 200)}" 감지되어 자동 비활성화`;
+  const matchCondition = params.itemId && params.vendorItemId
+    ? eq(products.externalProductId, `${params.productId}:${params.itemId}:${params.vendorItemId}`)
+    : like(products.externalProductId, `${params.productId}:%`);
+
+  const targets = await db
+    .select({ id: products.id, externalProductId: products.externalProductId })
+    .from(products)
+    .where(and(matchCondition, eq(products.isActive, true)));
+
+  if (targets.length === 0) return { deactivatedCount: 0, deactivated: [] };
+
+  await db
+    .update(products)
+    .set({ isActive: false, lastRefreshReason: reason })
+    .where(inArray(products.id, targets.map(target => target.id)));
+
+  return { deactivatedCount: targets.length, deactivated: targets };
 }
 
 /** 관리자 화면에 외부 cron이 실제 처리할 수 있는 보류 검색 상품 수를 제공합니다. */
