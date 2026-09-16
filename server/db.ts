@@ -2271,6 +2271,16 @@ export const EXTENSION_AUTO_REVISIT_MAX_LIMIT = 30;
  * 통틀어 가장 오래 확인되지 않은(lastSeenAt이 가장 옛날인) 순서로 후보를 내려준다.
  * minStaleMs 안에 이미 확인된 상품은 제외해서, 같은 상품을 너무 자주 재방문하지
  * 않도록 한다.
+ *
+ * 2026-09-16: 원래는 isActive: true인 상품만 후보로 내려줬다. 그런데 확장의
+ * "삭제된 상품 보고 → 완전 삭제" 기능(deleteProductsReportedGoneByExtension)이
+ * 생긴 뒤에도, isActive: false로 비활성화된 상품은 애초에 자동 순회 후보에서
+ * 빠지니 확장이 다시 방문할 일이 없어서 영원히 "비활성(만료 감지)" 상태로만
+ * 남아있는 문제가 있었다(사용자가 직접 그 페이지를 열어야만 재감지·정리됨).
+ * 이제 삭제 판정이 되돌릴 수 없는 완전 삭제이므로, 비활성 상품도 후보에 포함시켜
+ * 자동 순회가 다시 방문하게 한다 — 실제로 사라진 상품이면 이번에 완전 삭제되고,
+ * 아직 살아있는 상품이면(예: 일시적 오탐으로 비활성화됐던 경우) 정상 관측이
+ * 다시 쌓이며 활성 상태로 자연스럽게 돌아온다.
  */
 const EXTENSION_AUTO_REVISIT_SOURCES = ["collection", "goldbox", "bestcategory"] as const;
 
@@ -2289,7 +2299,6 @@ export async function getStaleTrackedProductsForExtensionRevisit(limit: number, 
     .from(products)
     .where(and(
       inArray(products.source, EXTENSION_AUTO_REVISIT_SOURCES),
-      eq(products.isActive, true),
       lt(products.lastSeenAt, staleBefore),
     ))
     .orderBy(asc(products.lastSeenAt))
