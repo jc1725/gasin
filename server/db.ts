@@ -2108,16 +2108,28 @@ export async function listAllTrackedProducts() {
     .orderBy(asc(products.lastSeenAt));
 }
 
-/** 관리자의 현재 가격 추이 목록입니다. 활성 상품 전체를 반환하며 페이지 표시는 UI에서 10개씩 나눕니다. */
+/**
+ * 관리자의 "현재 가격 추이 상품" 검색 대상입니다. 스케줄러가 가격 갱신·알림 대상으로 쓰는
+ * listAllTrackedProducts()와 달리 isActive 여부를 가리지 않고 전체 상품(가신 수집기가
+ * "삭제/만료된 상품"으로 판정해 비활성화한 것 포함)을 반환합니다 — 관리자가 그런 상품도
+ * 검색해서 검토하거나 영구 삭제할 수 있어야 하기 때문입니다. 가격이 가장 오래 갱신되지
+ * 않은 상품부터 보이도록 lastSeenAt 오름차순으로 정렬하며, 페이지 표시는 UI에서 10개씩
+ * 나눕니다.
+ */
 export async function listCurrentPriceProductsForAdmin() {
-  return listAllTrackedProducts();
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(products).orderBy(asc(products.lastSeenAt));
 }
 
+// 아래 두 삭제 함수는 isActive를 가리지 않는다 — listCurrentPriceProductsForAdmin이 이제
+// 비활성(만료 감지) 상품도 함께 보여주므로, 관리자가 그 상품을 선택해 삭제를 눌렀을 때도
+// (예전처럼 "이미 비활성이라 대상 없음"으로 조용히 건너뛰지 않고) 실제로 지워져야 한다.
 export async function deleteTrackedProductForAdmin(productId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database is unavailable");
   return db.transaction(async tx => {
-    const product = (await tx.select({ id: products.id }).from(products).where(and(eq(products.id, productId), eq(products.isActive, true))).limit(1))[0];
+    const product = (await tx.select({ id: products.id }).from(products).where(eq(products.id, productId)).limit(1))[0];
     if (!product) return { deleted: false };
     await tx.delete(manualLinkTracks).where(eq(manualLinkTracks.productId, productId));
     await tx.delete(products).where(eq(products.id, productId));
@@ -2131,12 +2143,12 @@ export async function deleteTrackedProductsForAdmin(productIds: number[]) {
   const uniqueIds = Array.from(new Set(productIds.filter(id => Number.isInteger(id) && id > 0)));
   if (uniqueIds.length === 0) return { deletedCount: 0, skippedCount: 0 };
   return db.transaction(async tx => {
-    const activeProducts = await tx.select({ id: products.id }).from(products).where(and(inArray(products.id, uniqueIds), eq(products.isActive, true)));
-    const activeIds = activeProducts.map(product => product.id);
-    if (activeIds.length === 0) return { deletedCount: 0, skippedCount: uniqueIds.length };
-    await tx.delete(manualLinkTracks).where(inArray(manualLinkTracks.productId, activeIds));
-    await tx.delete(products).where(inArray(products.id, activeIds));
-    return { deletedCount: activeIds.length, skippedCount: uniqueIds.length - activeIds.length };
+    const existingProducts = await tx.select({ id: products.id }).from(products).where(inArray(products.id, uniqueIds));
+    const existingIds = existingProducts.map(product => product.id);
+    if (existingIds.length === 0) return { deletedCount: 0, skippedCount: uniqueIds.length };
+    await tx.delete(manualLinkTracks).where(inArray(manualLinkTracks.productId, existingIds));
+    await tx.delete(products).where(inArray(products.id, existingIds));
+    return { deletedCount: existingIds.length, skippedCount: uniqueIds.length - existingIds.length };
   });
 }
 

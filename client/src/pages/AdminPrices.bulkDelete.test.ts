@@ -31,7 +31,7 @@ describe("admin current price bulk delete", () => {
     expect(router).toContain("z.array(z.number().int().positive()).min(1).max(500)");
     expect(router).toContain("deleteTrackedProductsForAdmin(input.productIds)");
     expect(db).toContain("export async function deleteTrackedProductsForAdmin");
-    expect(db).toContain("inArray(products.id, activeIds)");
+    expect(db).toContain("inArray(products.id, existingIds)");
   });
 });
 
