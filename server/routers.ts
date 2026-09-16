@@ -480,7 +480,9 @@ export const appRouter = router({
         return { success: true };
       }),
     deleteCurrentPriceProducts: adminProcedure
-      .input(z.object({ productIds: z.array(z.number().int().positive()).min(1).max(100) }))
+      // 클라이언트(AdminPrices.tsx의 CURRENT_PRICE_DELETE_BATCH_SIZE)가 이 상한에 맞춰 큰 선택을
+      // 여러 번 나눠 호출한다 — 두 값을 같이 바꿔야 한다.
+      .input(z.object({ productIds: z.array(z.number().int().positive()).min(1).max(500) }))
       .mutation(async ({ ctx, input }) => {
         requireGoogleUser(ctx.user.loginMethod);
         return deleteTrackedProductsForAdmin(input.productIds);
