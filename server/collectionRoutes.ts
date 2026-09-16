@@ -143,11 +143,11 @@ export function registerCollectionRoutes(app: Express) {
   });
 
   // 가신 수집기가 방문한 상품 페이지가 "삭제/만료된 상품"으로 판단되면 보고받는
-  // 엔드포인트. /api/collect와 같은 Bearer 토큰으로 인증한다. 보고된 문구가
-  // "URL이 사라져서 없는 상품입니다"(더 확정적인 신호)와 일치하면 완전 삭제하고,
-  // 그 외의 일반적인 "삭제/만료" 문구는 isActive: false 비활성화만 수행한다
-  // (db.deactivateProductsReportedGoneByExtension 참고 — 확장의 DOM 휴리스틱
-  // 오탐 가능성 때문에 일반 케이스는 되돌릴 수 있게 남겨둠).
+  // 엔드포인트. /api/collect와 같은 Bearer 토큰으로 인증한다. 2026-09-16: 사용자가
+  // 실제 삭제 페이지에서 감지가 정확히 동작하는 것을 확인한 뒤 "확인되면 무조건
+  // 삭제"로 정책을 바꿨다 — 감지된 문구 내용과 무관하게 보고되면 항상 완전
+  // 삭제한다(db.deleteProductsReportedGoneByExtension 참고 — 가격 이력·즐겨찾기
+  // 연결까지 함께 사라지며 되돌릴 수 없음).
   app.post("/api/collect/gone", async (request, response) => {
     if (!authorize(request, response)) return;
     const parsed = goneReportBodySchema.safeParse(request.body);
@@ -156,17 +156,14 @@ export function registerCollectionRoutes(app: Express) {
       return;
     }
     try {
-      const result = await db.deactivateProductsReportedGoneByExtension(parsed.data);
+      const result = await db.deleteProductsReportedGoneByExtension(parsed.data);
       if (result.deletedCount > 0) {
-        console.log(`[Collect API] 삭제 상품 보고("URL이 사라져서 없는 상품입니다")로 ${result.deletedCount}개 완전 삭제: ${result.deleted.map(item => item.externalProductId).join(", ")}`);
-      }
-      if (result.deactivatedCount > 0) {
-        console.log(`[Collect API] 삭제 상품 보고로 ${result.deactivatedCount}개 비활성화: ${result.deactivated.map(item => item.externalProductId).join(", ")}`);
+        console.log(`[Collect API] 삭제 상품 보고("${parsed.data.message.slice(0, 100)}")로 ${result.deletedCount}개 완전 삭제: ${result.deleted.map(item => item.externalProductId).join(", ")}`);
       }
       response.status(200).json({ ok: true, ...result });
     } catch (error) {
-      console.error("[Collect API] Failed to deactivate gone product", error);
-      response.status(500).json({ error: "Failed to deactivate gone product" });
+      console.error("[Collect API] Failed to delete gone product", error);
+      response.status(500).json({ error: "Failed to delete gone product" });
     }
   });
 

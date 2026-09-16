@@ -1,22 +1,30 @@
 import { describe, expect, it } from "vitest";
-import { DEFINITIVE_URL_GONE_PATTERN } from "./db";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
-// 2026-09-16: 가신 수집기가 상품 페이지에서 "URL이 사라져서 없는 상품입니다"를 감지해
-// 보고하면, deactivateProductsReportedGoneByExtension은 이 패턴에 걸릴 때만 소프트
-// 비활성화(isActive: false) 대신 완전 삭제(하드 삭제)한다 — 이 문구는 주소 자체가
-// 더 이상 유효하지 않을 때만 뜨는 것으로 보여, 확장의 DOM 휴리스틱 오탐 가능성이 있는
-// 다른 "삭제/만료" 문구들보다 더 확정적인 신호이기 때문. 이 판정 기준 자체를 실제
-// 정규식으로 검증한다(문자열 리터럴 존재 여부가 아니라).
-describe("URL이 사라져서 없는 상품입니다 — 확정적 완전 삭제 판정 패턴", () => {
-  it("정확한 문구와 조사·공백 변형을 확정 삭제 대상으로 판정한다", () => {
-    expect(DEFINITIVE_URL_GONE_PATTERN.test("URL이 사라져서 없는 상품입니다")).toBe(true);
-    expect(DEFINITIVE_URL_GONE_PATTERN.test("해당 URL은 사라져서 없는 상품입니다.")).toBe(true);
-    expect(DEFINITIVE_URL_GONE_PATTERN.test("URL 사라져 없는 상품")).toBe(true);
+const db = readFileSync(join(process.cwd(), "server/db.ts"), "utf8");
+const routes = readFileSync(join(process.cwd(), "server/collectionRoutes.ts"), "utf8");
+
+// 2026-09-16: 처음엔 확장의 DOM 휴리스틱 오탐 가능성 때문에 isActive: false로 소프트
+// 비활성화만 했었고, 이후 "URL이 사라져서 없는 상품입니다" 문구일 때만 완전 삭제하는
+// 중간 단계를 거쳤다. 사용자가 실제 삭제 상품 페이지(쿠팡의 "상품을 찾을 수
+// 없습니다" 안내 + 확장의 "삭제된 상품으로 보고함" 배지)로 감지가 정확히 동작하는
+// 것을 직접 확인한 뒤 "확인되면 무조건 삭제"로 정책을 바꿨다 — 이제 감지된 문구
+// 내용과 무관하게 보고되면 항상 완전 삭제한다(문구별 분기 없음).
+describe("가신 수집기의 '삭제된 상품' 보고 — 조건 없이 완전 삭제", () => {
+  it("메시지 내용과 무관하게 항상 완전 삭제한다 — 더 이상 isActive 소프트 비활성화로 분기하지 않음", () => {
+    expect(db).toContain("export async function deleteProductsReportedGoneByExtension");
+    expect(db).toContain("await db.delete(manualLinkTracks).where(inArray(manualLinkTracks.productId, targetIds));");
+    expect(db).toContain("await db.delete(products).where(inArray(products.id, targetIds));");
+    expect(db).not.toContain("isActive: false, lastRefreshReason: reason");
+    expect(db).not.toContain("DEFINITIVE_URL_GONE_PATTERN");
+    expect(db).not.toContain("deactivateProductsReportedGoneByExtension");
   });
 
-  it("이 문구가 없는 일반적인 '삭제/만료' 안내는 확정 삭제 대상으로 판정하지 않는다(소프트 비활성화 유지)", () => {
-    expect(DEFINITIVE_URL_GONE_PATTERN.test("상품을 찾을 수 없습니다. 주소가 잘못 입력되었거나, 판매 종료 또는 중지되어 해당 상품을 찾을 수 없습니다.")).toBe(false);
-    expect(DEFINITIVE_URL_GONE_PATTERN.test("존재하지 않는 상품입니다")).toBe(false);
-    expect(DEFINITIVE_URL_GONE_PATTERN.test("이 URL은 유효하지 않은 주소입니다.")).toBe(false);
+  it("/api/collect/gone 라우트가 새 함수와 완전 삭제 결과만 사용한다", () => {
+    expect(routes).toContain("db.deleteProductsReportedGoneByExtension(parsed.data)");
+    expect(routes).toContain("result.deletedCount");
+    expect(routes).not.toContain("deactivateProductsReportedGoneByExtension");
+    expect(routes).not.toContain("result.deactivatedCount");
   });
 });
