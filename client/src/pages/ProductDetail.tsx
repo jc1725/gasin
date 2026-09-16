@@ -4,6 +4,7 @@ import { lazy, Suspense, useEffect, useMemo } from "react";
 import { useFavorites } from "@/hooks/useFavorites";
 import { trpc } from "@/lib/trpc";
 import { getOptionDisplay } from "@/lib/optionDisplay";
+import { dedupeVariantsWithoutOptionInfo } from "@/lib/productVariantDedupe";
 import { collapsePriceHistoryToDailyLow, getLowestPrice, getRecentSoldOutObservations, mergeAllPriceHistory } from "@/lib/priceHistory";
 import { createCoupangSearchUrl } from "@/lib/coupangSearchUrl";
 import { hasCollectorVerifiedPurchasePath } from "@/lib/collectorVerifiedPurchase";
@@ -42,7 +43,10 @@ export default function ProductDetail() {
   const dailyLowestHistory = collapsePriceHistoryToDailyLow(mergedHistory);
   const chartData = dailyLowestHistory.map(point => ({ date: point.occurredAt.toLocaleDateString("ko-KR", { month: "numeric", day: "numeric" }), price: point.price }));
   const lowestPrice = getLowestPrice(dailyLowestHistory, product.lowestPrice);
-  const variants = [product, ...(related.data ?? [])];
+  const rawVariants = [product, ...(related.data ?? [])];
+  // 쿠팡이 itemId·vendorItemId를 재발급하는 등의 이유로 같은 실제 상품이 옵션 정보가
+  // 있는 행과 없는 행, 두 개의 DB 행으로 나란히 보이는 경우를 화면에서 한 번 더 정리한다.
+  const variants = dedupeVariantsWithoutOptionInfo(rawVariants, product.id);
   const unitPrices = variants.flatMap(item => item.unitPrice === null ? [] : [item.unitPrice]);
   const bestUnitPrice = unitPrices.length > 0 ? Math.min(...unitPrices) : null;
   const latestUserConfirmedPrice = userConfirmedPrices.data?.[0];
