@@ -6,7 +6,8 @@ import type { CoupangApiCallType } from "./coupangRateLimit";
 import { buildSearchKeywordVariants, filterStableDeliveryResults, hasFullKeywordMatch, rankSearchResults } from "./searchRelevance";
 import { notifySearchQuotaExceeded } from "./searchQuotaAlert";
 import { isExcludedTrackingCategory } from "./categoryEligibility";
-import { describeProductVariant } from "./productVariant";
+import { describeProductVariant, getProductFamilyKey } from "./productVariant";
+import { selectCheapestPerFamilyByItemPrice } from "./productDedupe";
 
 export type CatalogSearchResult = {
   products: Awaited<ReturnType<typeof db.listProducts>>;
@@ -32,6 +33,7 @@ export type EphemeralSearchProduct = {
   categoryName: string | null;
   currentPrice: number;
   lowestPrice: number;
+  familyKey: string | null;
   variantLabel: string | null;
   unitPrice: number | null;
   unitLabel: string | null;
@@ -95,6 +97,7 @@ function toEphemeralSearchProduct(keyword: string, item: CoupangProduct): Epheme
     categoryName: item.categoryName ?? null,
     currentPrice: item.productPrice,
     lowestPrice: item.productPrice,
+    familyKey: getProductFamilyKey(item.productName),
     variantLabel: variant.variantLabel,
     unitPrice: variant.unitPrice,
     unitLabel: variant.unitLabel,
@@ -174,7 +177,7 @@ export async function searchCatalogSafely(keyword: string, limit = 10, options: 
       const rankedCached = removeExcludedTrackingProducts(filterStableDeliveryResults(rankSearchResults(keyword, cached), keyword));
       const cacheIsUsable = rankedCached.length > 0 && hasUsableStoredPrice(rankedCached);
       if (cacheIsUsable && hasFullKeywordMatch(keyword, rankedCached)) {
-        return { products: rankedCached, source: "cache", message: "검색어와 일치하는 저장 결과를 표시합니다." };
+        return { products: selectCheapestPerFamilyByItemPrice(rankedCached), source: "cache", message: "검색어와 일치하는 저장 결과를 표시합니다." };
       }
       if (cacheIsUsable) {
         // 캐시에 결과가 있어도 검색어 핵심 토큰과 완전히 일치하는 상품이 그 안에
@@ -186,11 +189,12 @@ export async function searchCatalogSafely(keyword: string, limit = 10, options: 
         // 있는지 한 번 더 확인하고, 있다면 그 결과로 캐시를 즉시 갱신한다.
         const freshMatches = removeExcludedTrackingProducts(filterStableDeliveryResults(rankSearchResults(keyword, await db.searchTrackedProducts(keyword, limit)), keyword));
         if (hasFullKeywordMatch(keyword, freshMatches) && hasUsableStoredPrice(freshMatches)) {
+          const dedupedFreshMatches = selectCheapestPerFamilyByItemPrice(freshMatches);
           await db.invalidateCachedSearchProducts(keyword);
-          await db.cacheSearchProducts(keyword, freshMatches.map(product => product.id));
-          return { products: freshMatches, source: "database", message: "가격 추적 목록에서 찾은 최신 결과로 캐시를 갱신했습니다." };
+          await db.cacheSearchProducts(keyword, dedupedFreshMatches.map(product => product.id));
+          return { products: dedupedFreshMatches, source: "database", message: "가격 추적 목록에서 찾은 최신 결과로 캐시를 갱신했습니다." };
         }
-        return { products: rankedCached, source: "cache", message: "검색어와 일치하는 저장 결과를 표시합니다." };
+        return { products: selectCheapestPerFamilyByItemPrice(rankedCached), source: "cache", message: "검색어와 일치하는 저장 결과를 표시합니다." };
       }
       // 가격 데이터가 없는 캐시와 무관한 이전 응답은 최신 가격을 확인할 수 없다.
       // 다음 허용된 검색에서 즉시 공식 API를 한 번 조회하도록 제거한다.
@@ -207,12 +211,12 @@ export async function searchCatalogSafely(keyword: string, limit = 10, options: 
       || (databaseMatches.length > rankedDatabaseMatches.length && rankedDatabaseMatches.length > 0)
       || hasFullKeywordMatch(keyword, rankedDatabaseMatches);
     if (hasSufficientStoredCoverage && hasUsableStoredPrice(rankedDatabaseMatches)) {
-      return { products: rankedDatabaseMatches, source: "database", message: "가격 추적 목록에서 찾은 결과입니다." };
+      return { products: selectCheapestPerFamilyByItemPrice(rankedDatabaseMatches), source: "database", message: "가격 추적 목록에서 찾은 결과입니다." };
     }
     // 저장 결과가 적으면 한두 개만으로 검색을 끝내지 않고 공식 API로 보완한다.
     // API가 결과를 주지 않을 때는 이미 저장된 관련 상품을 fallback으로 유지한다.
     databaseFallback = rankedDatabaseMatches.length > 0 && hasUsableStoredPrice(rankedDatabaseMatches)
-      ? rankedDatabaseMatches
+      ? selectCheapestPerFamilyByItemPrice(rankedDatabaseMatches)
       : [];
   }
 
@@ -271,9 +275,12 @@ export async function searchCatalogSafely(keyword: string, limit = 10, options: 
           ephemeral.unshift(exactTrackedMatch);
         }
       }
-      if (ephemeral.length === 0 && callType === "product-search") await db.recordMissingSearch(keyword);
+      // 같은 상품이 용량은 같고 수량(묶음 개수)만 다른 카드로 여러 개 나오는 걸
+      // 막기 위해, 실제로 저장하기 전인 이 단계에서도 상품군당 하나만 남긴다.
+      const dedupedEphemeral = selectCheapestPerFamilyByItemPrice(ephemeral);
+      if (dedupedEphemeral.length === 0 && callType === "product-search") await db.recordMissingSearch(keyword);
       return {
-        products: ephemeral,
+        products: dedupedEphemeral,
         source: "coupang",
         message: ephemeral.length > 0
           ? (options.forceExternal ? "쿠팡 공식 API로 최신 검색 결과를 새로 확인했습니다." : "쿠팡 최신 검색 결과 중 검색어와 일치하는 상품을 표시합니다.")
@@ -289,6 +296,9 @@ export async function searchCatalogSafely(keyword: string, limit = 10, options: 
         ranked = [exactTrackedMatch, ...ranked];
       }
     }
+    // 같은 상품이 용량은 같고 수량(묶음 개수)만 다른 카드로 여러 개 나오는 걸
+    // 막기 위해, 상품군당 "수량 1개당 가격"이 가장 저렴한 하나만 남긴다.
+    ranked = selectCheapestPerFamilyByItemPrice(ranked);
     await reuseAffiliateUrlsFromSearch(ranked);
     await db.cacheSearchProducts(keyword, ranked.map(product => product.id));
     if (ranked.length === 0 && callType === "product-search") await db.recordMissingSearch(keyword);

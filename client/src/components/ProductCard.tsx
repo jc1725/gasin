@@ -16,6 +16,7 @@ export type ProductCardItem = {
   unitLabel: string | null;
   quantity?: number | null;
   packSize?: string | null;
+  familyKey?: string | null;
   source: "goldbox" | "search" | "bestcategory" | "collection";
   isRocket: boolean;
   isFreeShipping: boolean;
@@ -63,6 +64,9 @@ export default function ProductCard({
   const displayName = getProductDisplayName(product.name, displayVariantLabel, product.unitLabel);
   const optionDisplayLabel = getProductOptionDisplayLabel(displayVariantLabel, product.unitLabel);
   const hasOptionMetadata = Boolean(optionDisplayLabel || metaTags.capacity || metaTags.quantity || metaTags.packSize);
+  // 용량은 같고 수량(묶음 개수)만 다른 옵션끼리도 공정하게 비교할 수 있도록,
+  // 수량이 2개 이상 확인된 상품에는 "수량 1개당 가격"을 함께 보여준다.
+  const perItemPrice = hasRecordedPrice && product.quantity && product.quantity > 1 ? Math.round(product.currentPrice / product.quantity) : null;
 
   const cardBody = (
     <>
@@ -93,6 +97,7 @@ export default function ProductCard({
       </div>
       {userConfirmedPrice ? <p className="mt-1 rounded-md bg-[#fff5d9] px-1.5 py-1 text-[9px] font-bold text-[#8a600e]">직접 확인 {won(userConfirmedPrice.price)} · {new Date(userConfirmedPrice.checkedAt).toLocaleDateString("ko-KR", { month: "numeric", day: "numeric" })}</p> : null}
       {product.unitPrice && product.unitLabel ? <p className="mt-1 text-[10px] font-medium text-[#6e806f]">{product.unitLabel}당 {won(product.unitPrice)}</p> : null}
+      {perItemPrice !== null ? <p className="mt-1 text-[10px] font-medium text-[#6e806f]">1개당 {won(perItemPrice)}</p> : null}
     </>
   );
 
