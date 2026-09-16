@@ -2311,8 +2311,16 @@ export async function getStaleTrackedProductsForExtensionRevisit(limit: number, 
  *
  * itemId·vendorItemId를 둘 다 알면(확장이 방문한 URL의 쿼리스트링에서 읽음) 그
  * 정확 SKU 한 행만 삭제한다. 둘 중 하나라도 없으면(상품 자체가 없어서 옵션 정보를
- * 아예 못 읽은 경우) 같은 productId를 가진 모든 활성 SKU 행을 삭제한다 — 상품
- * 자체가 사라졌다면 그 밑의 모든 옵션도 함께 사라진 것으로 본다.
+ * 아예 못 읽은 경우) 같은 productId를 가진 모든 SKU 행을 삭제한다 — 상품 자체가
+ * 사라졌다면 그 밑의 모든 옵션도 함께 사라진 것으로 본다.
+ *
+ * 2026-09-16 버그 수정: 매치 조건에 isActive: true를 걸어뒀었는데, 예전(소프트
+ * 비활성화 시절) 로직으로 이미 isActive: false가 된 상품을 확장이 재방문해서
+ * 다시 "삭제됨"으로 보고하면 이 필터 때문에 대상이 0건으로 잡혀 아무 일도
+ * 일어나지 않았다(카운터는 확장 쪽에서 보고 자체만으로 올라가므로 정상 증가해서
+ * 겉으론 동작하는 것처럼 보이지만, 실제 삭제는 되지 않고 관리자 "전체 상품"
+ * 목록에 비활성 상태로 계속 남는 버그였다). 이제 "감지되면 무조건 삭제"
+ * 정책이므로 isActive 상태와 무관하게 매치해서 지운다.
  */
 export async function deleteProductsReportedGoneByExtension(params: {
   productId: string;
@@ -2330,7 +2338,7 @@ export async function deleteProductsReportedGoneByExtension(params: {
   const targets = await db
     .select({ id: products.id, externalProductId: products.externalProductId })
     .from(products)
-    .where(and(matchCondition, eq(products.isActive, true)));
+    .where(matchCondition);
 
   if (targets.length === 0) return { deletedCount: 0, deleted: [] };
   const targetIds = targets.map(target => target.id);
