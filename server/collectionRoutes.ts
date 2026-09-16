@@ -143,9 +143,11 @@ export function registerCollectionRoutes(app: Express) {
   });
 
   // 가신 수집기가 방문한 상품 페이지가 "삭제/만료된 상품"으로 판단되면 보고받는
-  // 엔드포인트. /api/collect와 같은 Bearer 토큰으로 인증한다. 하드 삭제가 아니라
-  // isActive: false 비활성화만 수행한다(db.deactivateProductsReportedGoneByExtension
-  // 참고 — 확장의 DOM 휴리스틱 오탐 가능성 때문에 되돌릴 수 있게 남겨둠).
+  // 엔드포인트. /api/collect와 같은 Bearer 토큰으로 인증한다. 보고된 문구가
+  // "URL이 사라져서 없는 상품입니다"(더 확정적인 신호)와 일치하면 완전 삭제하고,
+  // 그 외의 일반적인 "삭제/만료" 문구는 isActive: false 비활성화만 수행한다
+  // (db.deactivateProductsReportedGoneByExtension 참고 — 확장의 DOM 휴리스틱
+  // 오탐 가능성 때문에 일반 케이스는 되돌릴 수 있게 남겨둠).
   app.post("/api/collect/gone", async (request, response) => {
     if (!authorize(request, response)) return;
     const parsed = goneReportBodySchema.safeParse(request.body);
@@ -155,6 +157,9 @@ export function registerCollectionRoutes(app: Express) {
     }
     try {
       const result = await db.deactivateProductsReportedGoneByExtension(parsed.data);
+      if (result.deletedCount > 0) {
+        console.log(`[Collect API] 삭제 상품 보고("URL이 사라져서 없는 상품입니다")로 ${result.deletedCount}개 완전 삭제: ${result.deleted.map(item => item.externalProductId).join(", ")}`);
+      }
       if (result.deactivatedCount > 0) {
         console.log(`[Collect API] 삭제 상품 보고로 ${result.deactivatedCount}개 비활성화: ${result.deactivated.map(item => item.externalProductId).join(", ")}`);
       }

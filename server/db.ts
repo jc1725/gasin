@@ -2296,18 +2296,31 @@ export async function getStaleTrackedProductsForExtensionRevisit(limit: number, 
     .limit(Math.min(Math.max(limit, 1), EXTENSION_AUTO_REVISIT_MAX_LIMIT));
 }
 
+// 2026-09-16: "URL이 사라져서 없는 상품입니다" 류의 문구는 쿠팡 상품 페이지가 완전히
+// 사라졌을 때(주소 자체가 더 이상 유효하지 않을 때)만 뜨는 것으로 보고돼, 아래의 일반
+// "삭제/만료" 문구보다 더 확정적인 신호로 취급한다 — 이 경우엔 소프트 비활성화가 아니라
+// 완전 삭제(하드 삭제)까지 수행한다. 조사·이용자 등이 자연스럽게 붙는 변형("URL은",
+// "URL이", 문장부호 등)을 허용하도록 느슨하게 잡는다.
+export const DEFINITIVE_URL_GONE_PATTERN = /URL\s*(이|은|가|는)?\s*사라져(서)?\s*없는\s*상품(입니다)?/;
+
 /**
  * 가신 수집기가 방문한 상품 페이지가 "삭제/만료된 상품"으로 보인다고 보고하면,
- * 해당 상품(들)을 isActive: false로 비활성화한다. 하드 삭제가 아니라 소프트
- * 비활성화인 이유: 이 판정은 확장의 DOM 휴리스틱(페이지 문구 감지)에 의존하므로
- * 오탐(쿠팡 쪽 일시적 오류 페이지, 렌더링 지연 등을 진짜 삭제로 오인) 가능성이
- * 있고, isActive: false는 가격 이력·즐겨찾기 연결을 보존한 채 목록에서만 빠지게
- * 하므로 필요하면 되돌릴 수 있다(다른 비활성화 경로들과 동일한 패턴 — 예:
- * mergeDuplicateProductsForAdmin, supersedeSearchSkusWithCollectorObservation).
+ * 해당 상품(들)을 처리한다.
+ *
+ * - 감지된 문구가 DEFINITIVE_URL_GONE_PATTERN("URL이 사라져서 없는 상품입니다")과
+ *   일치하면 하드 삭제한다 — 이 문구는 쿠팡이 주소 자체가 더 이상 유효하지 않을 때만
+ *   보여주는 것으로 보여 오탐 가능성이 낮다고 보기 때문.
+ * - 그 외의 "삭제/만료" 관련 문구는 기존처럼 isActive: false로 소프트 비활성화만
+ *   한다. 하드 삭제가 아니라 소프트 비활성화인 이유: 이 판정은 확장의 DOM 휴리스틱
+ *   (페이지 문구 감지)에 의존하므로 오탐(쿠팡 쪽 일시적 오류 페이지, 렌더링 지연
+ *   등을 진짜 삭제로 오인) 가능성이 있고, isActive: false는 가격 이력·즐겨찾기
+ *   연결을 보존한 채 목록에서만 빠지게 하므로 필요하면 되돌릴 수 있다(다른
+ *   비활성화 경로들과 동일한 패턴 — 예: mergeDuplicateProductsForAdmin,
+ *   supersedeSearchSkusWithCollectorObservation).
  *
  * itemId·vendorItemId를 둘 다 알면(확장이 방문한 URL의 쿼리스트링에서 읽음) 그
- * 정확 SKU 한 행만 비활성화한다. 둘 중 하나라도 없으면(상품 자체가 없어서 옵션
- * 정보를 아예 못 읽은 경우) 같은 productId를 가진 모든 활성 SKU 행을 비활성화한다
+ * 정확 SKU 한 행만 대상으로 한다. 둘 중 하나라도 없으면(상품 자체가 없어서 옵션
+ * 정보를 아예 못 읽은 경우) 같은 productId를 가진 모든 활성 SKU 행을 대상으로 한다
  * — 상품 자체가 사라졌다면 그 밑의 모든 옵션도 함께 사라진 것으로 본다.
  */
 export async function deactivateProductsReportedGoneByExtension(params: {
@@ -2316,10 +2329,10 @@ export async function deactivateProductsReportedGoneByExtension(params: {
   vendorItemId?: string | null;
   message: string;
 }) {
+  const emptyResult = { deactivatedCount: 0, deactivated: [] as { id: number; externalProductId: string }[], deletedCount: 0, deleted: [] as { id: number; externalProductId: string }[] };
   const db = await getDb();
-  if (!db) return { deactivatedCount: 0, deactivated: [] as { id: number; externalProductId: string }[] };
+  if (!db) return emptyResult;
 
-  const reason = `가신 수집기: 상품 페이지에서 "${params.message.slice(0, 200)}" 감지되어 자동 비활성화`;
   const matchCondition = params.itemId && params.vendorItemId
     ? eq(products.externalProductId, `${params.productId}:${params.itemId}:${params.vendorItemId}`)
     : like(products.externalProductId, `${params.productId}:%`);
@@ -2329,14 +2342,22 @@ export async function deactivateProductsReportedGoneByExtension(params: {
     .from(products)
     .where(and(matchCondition, eq(products.isActive, true)));
 
-  if (targets.length === 0) return { deactivatedCount: 0, deactivated: [] };
+  if (targets.length === 0) return emptyResult;
+  const targetIds = targets.map(target => target.id);
 
+  if (DEFINITIVE_URL_GONE_PATTERN.test(params.message)) {
+    await db.delete(manualLinkTracks).where(inArray(manualLinkTracks.productId, targetIds));
+    await db.delete(products).where(inArray(products.id, targetIds));
+    return { deactivatedCount: 0, deactivated: [], deletedCount: targets.length, deleted: targets };
+  }
+
+  const reason = `가신 수집기: 상품 페이지에서 "${params.message.slice(0, 200)}" 감지되어 자동 비활성화`;
   await db
     .update(products)
     .set({ isActive: false, lastRefreshReason: reason })
-    .where(inArray(products.id, targets.map(target => target.id)));
+    .where(inArray(products.id, targetIds));
 
-  return { deactivatedCount: targets.length, deactivated: targets };
+  return { deactivatedCount: targets.length, deactivated: targets, deletedCount: 0, deleted: [] };
 }
 
 /** 관리자 화면에 외부 cron이 실제 처리할 수 있는 보류 검색 상품 수를 제공합니다. */
