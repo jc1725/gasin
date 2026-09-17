@@ -1476,14 +1476,34 @@ export async function upsertCoupangProduct(product: CoupangProduct, source: Prod
   // ==="manual", 이 스키마의 기본값이기도 함)이 다음 정기 갱신 때 그냥 사라짐.
   // (2) 공식 API가 돌려준 product.productName에 규격 정보가 전혀 없으면(옵션명이
   // 아니라 이름 자체에만 의존하는 describeProductVariant 특성상 흔함) variant.*가
-  // 통째로 null이 되어, 이전에 정상적으로 채워져 있던 값까지 함께 지워짐. 수집기
-  // 반영 경로(recordCollectedPriceItems의 canReplaceMetadata)와 같은 원칙을 적용한다:
-  // optionMetadataSource가 "manual"이고 기존 값이 이미 채워져 있으면 보존하고,
-  // unitPrice만 새 가격 기준으로 다시 계산해서(관리자가 입력한 unitLabel과 항상
-  // 짝이 맞도록) 함께 저장한다.
-  const hasProtectedManualOption = existing?.optionMetadataSource === "manual"
-    && Boolean(existing.variantLabel) && Boolean(existing.unitLabel) && existing.quantity !== null;
-  const preservedQuantity = hasProtectedManualOption ? existing!.quantity : variant.quantity;
+  // 통째로 null이 되어, 이전에 정상적으로 채워져 있던 값까지 함께 지워짐.
+  //
+  // 2026-09-17 추가 수정: 처음엔 "manual"만 보호했었는데, 수집기(가신 확장 프로그램)가
+  // 채운 값(optionMetadataSource==="collection")은 여전히 이 경로에서 지워질 수
+  // 있다는 문제가 남아있었다 — 예를 들어 골드박스/검색/베스트카테고리 소스 상품을
+  // 수집기로 재방문해서 실제 옵션 드롭다운 텍스트를 읽어 옵션 정보를 채워도, 다음
+  // 공식 API 정기 갱신에서 상품명만 보고 다시 파싱한 값(대개 비어있음)으로 덮어써
+  // 사라질 수 있었다. 공식 API의 describeProductVariant(상품명만 봄)는 수집기가
+  // 실제 화면에서 읽은 값이나 관리자가 직접 입력한 값보다 근본적으로 신뢰도가
+  // 낮으므로, "manual"·"collection" 어느 쪽이든 이미 채워져 있는 옵션 정보는 보존하고
+  // (관리자 수동 입력이든 수집기 관측이든) 값이 비어있을 때만 공식 API 파싱 결과로
+  // 채운다.
+  //
+  // 2026-09-17 세 번째 수정: 위 보호가 "variantLabel·unitLabel·quantity가 전부 채워져
+  // 있어야만" 보호하는 전부-아니면-전무 방식이었다. 그런데 실제로는 세 필드 중 일부만
+  // 채워진 상품이 흔하다(예: 관리자가 variantLabel만 고치고 quantity는 비워둔 경우,
+  // 수집기가 옵션명은 읽었지만 수량은 못 읽은 경우 등). 이 경우 전부-보호 조건이
+  // 깨져서 이미 채워져 있던 값(예: 관리자가 고친 variantLabel)까지 함께 지워졌다.
+  // 이제 채워진 필드만 개별적으로 보호한다. 단, unitLabel과 unitPrice는 항상 같은
+  // 기준을 가리켜야 하므로(다른 기준끼리 짝이 어긋나면 "100g당" 가격에 "1kg" 라벨이
+  // 붙는 식의 표시 버그로 이어짐 — 위 unitLabel 정규화 수정과 동일한 이유) 이 둘은
+  // 항상 같이 보존하거나 같이 교체한다(unitLabel 하나의 존재 여부로 판단해서, 보존할
+  // 때는 currentPrice와 보존된 quantity 기준으로 unitPrice만 다시 계산한다).
+  const isProtectedMetadataSource = existing?.optionMetadataSource === "manual" || existing?.optionMetadataSource === "collection";
+  const preserveVariantLabel = isProtectedMetadataSource && Boolean(existing.variantLabel);
+  const preserveUnitLabel = isProtectedMetadataSource && Boolean(existing.unitLabel);
+  const preserveQuantity = isProtectedMetadataSource && existing.quantity !== null;
+  const preservedQuantity = preserveQuantity ? existing!.quantity : variant.quantity;
   const values = {
     externalProductId,
     name: product.productName,
@@ -1491,11 +1511,11 @@ export async function upsertCoupangProduct(product: CoupangProduct, source: Prod
     affiliateUrl: product.productUrl,
     categoryName: product.categoryName ?? null,
     familyKey: getProductFamilyKey(product.productName),
-    variantLabel: hasProtectedManualOption ? existing!.variantLabel : variant.variantLabel,
-    unitPrice: hasProtectedManualOption
+    variantLabel: preserveVariantLabel ? existing!.variantLabel : variant.variantLabel,
+    unitPrice: preserveUnitLabel
       ? Math.round(currentPrice / (preservedQuantity ?? 1))
       : variant.unitPrice,
-    unitLabel: hasProtectedManualOption ? existing!.unitLabel : variant.unitLabel,
+    unitLabel: preserveUnitLabel ? existing!.unitLabel : variant.unitLabel,
     quantity: preservedQuantity,
     trackingPriority: source === "search" ? "low" as const : "normal" as const,
     currentPrice,
