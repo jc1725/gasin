@@ -27,4 +27,26 @@ describe("filterAdminProducts", () => {
     expect(filterAdminProducts(missingOptionProducts, "200ml").map(product => product.id)).toEqual([10]);
     expect(filterAdminProducts(missingOptionProducts, "신라면").map(product => product.id)).toEqual([11]);
   });
+
+  // 2026-09-17: "골드박스 상품이 검색이 안 된다"는 문의로 추가됨. 상품명에 우연히
+  // "골드박스" 글자가 들어있지 않으면(거의 항상 그렇다) 예전엔 절대 못 찾았다 —
+  // products.source 값으로도 찾을 수 있어야 한다.
+  it("finds products by their collection source (Korean or English label)", () => {
+    // 이름에는 일부러 출처 관련 단어를 전혀 넣지 않는다 — 이름 매칭이 아니라
+    // source 필드로만 찾아지는지 검증하기 위함.
+    const sourcedProducts = [
+      { id: 20, name: "무지개 텀블러 세트", externalProductId: "1:2:3", variantLabel: null, unitLabel: null, source: "goldbox" },
+      { id: 21, name: "은색 주방용 칼 세트", externalProductId: "4:5:6", variantLabel: null, unitLabel: null, source: "bestcategory" },
+      { id: 22, name: "파란색 무선 이어폰", externalProductId: "7:8:9", variantLabel: null, unitLabel: null, source: "collection" },
+      { id: 23, name: "초록색 우산", externalProductId: "10:11:12", variantLabel: null, unitLabel: null, source: "search" },
+    ];
+    expect(filterAdminProducts(sourcedProducts, "골드박스").map(product => product.id)).toEqual([20]);
+    expect(filterAdminProducts(sourcedProducts, "goldbox").map(product => product.id)).toEqual([20]);
+    expect(filterAdminProducts(sourcedProducts, "베스트카테고리").map(product => product.id)).toEqual([21]);
+    expect(filterAdminProducts(sourcedProducts, "수집기").map(product => product.id)).toEqual([22]);
+  });
+
+  it("still ignores source labels when the field is absent (backward compatible)", () => {
+    expect(filterAdminProducts(products, "골드박스")).toEqual([]);
+  });
 });
