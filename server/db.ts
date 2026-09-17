@@ -1094,10 +1094,23 @@ export async function listMissingOptionMetadataForAdmin(limit = 200) {
     .limit(Math.min(Math.max(limit, 1), 500));
 }
 
+// 2026-09-17: 관리자가 "옵션 수정"에서 용량(unitLabel)을 직접 타이핑해 저장해도 unitPrice는
+// 전혀 건드리지 않고 있어서, 라벨과 실제 숫자가 안 맞는 표시가 생기는 버그가 있었음
+// (예: "흙대파"를 자동 파싱이 "100g당 260원"으로 계산해뒀는데, 관리자가 용량을 "1kg"로
+// 고쳐 저장하면 라벨만 "1kg"로 바뀌고 unitPrice는 옛날 260이 그대로 남아 "1kg당 260원"
+// 처럼 10배 낮은 가격으로 보이던 문제). 관리자가 입력한 unitLabel은 "포장 하나 전체의
+// 용량"을 뜻하므로, 그 표기 그대로의 단가 = 현재가 ÷ 수량으로 다시 계산해 함께 저장한다.
+// unitLabel을 비우면(null) 단가 표시 자체가 의미 없으므로 unitPrice도 함께 비운다.
 export async function updateAdminProductOptionMetadata(productId: number, variantLabel: string | null, unitLabel: string | null, quantity: number | null = null) {
   const db = await getDb();
   if (!db) throw new Error("Database is unavailable");
-  const result = await db.update(products).set({ variantLabel, unitLabel, quantity, optionMetadataSource: "manual" }).where(and(eq(products.id, productId), eq(products.isActive, true)));
+  const existing = (await db.select({ currentPrice: products.currentPrice, quantity: products.quantity })
+    .from(products).where(and(eq(products.id, productId), eq(products.isActive, true))).limit(1))[0];
+  const effectiveQuantity = quantity ?? existing?.quantity ?? 1;
+  const unitPrice = unitLabel && existing && effectiveQuantity > 0
+    ? Math.round(existing.currentPrice / effectiveQuantity)
+    : null;
+  const result = await db.update(products).set({ variantLabel, unitLabel, quantity, unitPrice, optionMetadataSource: "manual" }).where(and(eq(products.id, productId), eq(products.isActive, true)));
   return { productId, updated: getAffectedRows(result) > 0 };
 }
 
