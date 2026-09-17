@@ -515,8 +515,14 @@ export async function recordCollectedPriceItems(items: CollectedPriceInput[]) {
             categoryName: item.pageType || legacySearchProduct.categoryName,
             familyKey: collectionFamilyKey,
             variantLabel: collectedOptionIsCompatible && optionName ? optionName : legacySearchProduct.variantLabel,
+            // 2026-09-17: unitPrice는 collectionVariant.unitPrice(항상 "100g"/"10ml" 등
+            // 정규화된 기준으로 계산됨)를 쓰면서, unitLabel은 수집기가 관측한 상품 전체
+            // 용량(capacityText, 예: "1kg")을 그대로 쓰던 버그가 있었다. "100g당" 기준으로
+            // 계산된 가격에 "1kg"라는 라벨이 붙어 실제보다 10배 싸 보이는 표시("1kg당
+            // 260원" 등)로 이어졌다. unitLabel도 반드시 collectionVariant.unitLabel로
+            // 맞춰서 unitPrice와 항상 같은 기준을 가리키게 한다.
             unitPrice: collectedOptionIsCompatible ? collectionVariant.unitPrice ?? legacySearchProduct.unitPrice : legacySearchProduct.unitPrice,
-            unitLabel: collectedOptionIsCompatible && capacityText ? capacityText : legacySearchProduct.unitLabel,
+            unitLabel: collectedOptionIsCompatible && collectionVariant.unitLabel ? collectionVariant.unitLabel : legacySearchProduct.unitLabel,
             quantity: collectedOptionIsCompatible && quantity ? quantity : legacySearchProduct.quantity,
             packSize: collectedOptionIsCompatible && packSize ? packSize : legacySearchProduct.packSize,
             optionMetadataSource: collectedOptionIsCompatible ? "collection" as const : legacySearchProduct.optionMetadataSource,
@@ -561,8 +567,11 @@ export async function recordCollectedPriceItems(items: CollectedPriceInput[]) {
             categoryName: item.pageType || null,
             familyKey: collectionFamilyKey,
             variantLabel: collectedOptionIsCompatible ? optionName ?? collectionVariant.variantLabel ?? "가신 수집기 상품" : null,
+            // 2026-09-17: unitLabel도 capacityText(상품 전체 용량, 예: "1kg")가 아니라
+            // collectionVariant.unitLabel(unitPrice와 같은 정규화 기준, 예: "100g")로
+            // 맞춘다 — 아래 legacySearchProduct·기존 상품 갱신 분기와 동일한 이유.
             unitPrice: collectedOptionIsCompatible ? collectionVariant.unitPrice : null,
-            unitLabel: collectedOptionIsCompatible ? capacityText ?? collectionVariant.unitLabel : null,
+            unitLabel: collectedOptionIsCompatible ? collectionVariant.unitLabel : null,
             quantity: collectedOptionIsCompatible ? quantity : null,
             packSize: collectedOptionIsCompatible ? packSize : null,
             optionMetadataSource: "collection",
@@ -596,7 +605,15 @@ export async function recordCollectedPriceItems(items: CollectedPriceInput[]) {
           if (!isDuplicateKey) throw error;
           const [raced] = await tx.select().from(products).where(eq(products.externalProductId, collectionKey)).limit(1);
           if (!raced) throw error; // 예상치 못한 상태이면 원래 오류를 그대로 전파합니다.
-          const racedLatestObservationAt = raced.wowMemberPriceObservedAt ?? raced.lastSeenAt;
+          // 2026-09-17: wowMemberPriceObservedAt은 "판매 중 + 가격 확인됨" 관측에서만
+          // 갱신되고 품절 관측에서는 갱신되지 않는다. 그런데도 이 값이 있으면 lastSeenAt
+          // (모든 관측에서 항상 갱신됨)보다 우선해서 "최신 관측 시각"으로 썼기 때문에,
+          // "9시 판매 중(wowMemberPriceObservedAt=9시) → 12시 품절 확인(lastSeenAt만
+          // 12시로 갱신) → 지연 도착한 10시 판매 중 데이터"의 순서라면 10시 데이터가
+          // "12시보다 최신"이 아닌데도 "9시보다는 최신"이라고 오판해 방금 확인한 품절
+          // 상태를 되돌릴 수 있었다. lastSeenAt은 관측 종류와 무관하게 항상 최신 관측
+          // 시각을 담고 있으므로 이제 lastSeenAt만 기준으로 삼는다.
+          const racedLatestObservationAt = raced.lastSeenAt;
           if (effectivePrice > 0 && item.collectedAt.getTime() > racedLatestObservationAt.getTime()) {
             const priceChanged = raced.currentPrice !== effectivePrice;
             await tx.update(products).set({
@@ -631,7 +648,12 @@ export async function recordCollectedPriceItems(items: CollectedPriceInput[]) {
         continue;
       }
 
-      const latestPriceObservationAt = current.wowMemberPriceObservedAt ?? current.lastSeenAt;
+      // 2026-09-17: 위 racedLatestObservationAt과 동일한 이유로 wowMemberPriceObservedAt
+      // 대신 lastSeenAt만 기준으로 삼는다 — "9시 판매 중 → 12시 품절 확인 → 지연 도착한
+      // 10시 판매 중 데이터" 순서에서 10시 데이터가 이미 확인된 12시 품절 상태를
+      // 되돌리는 버그(가장 최근 확인이 wowMemberPriceObservedAt을 갱신하지 않는 품절
+      // 관측이었을 때만 발생)가 있었다.
+      const latestPriceObservationAt = current.lastSeenAt;
       if (item.collectedAt.getTime() <= latestPriceObservationAt.getTime()) {
         // 확장 프로그램이 전송 재시도할 때 collectedAt이 같을 수 있다. 이 경우에도
         // 같은 정확 SKU의 유효 관측이면 파트너스 API 미발견으로 남은 실패 딥링크를
@@ -667,8 +689,13 @@ export async function recordCollectedPriceItems(items: CollectedPriceInput[]) {
         categoryName: item.pageType || current.categoryName,
         familyKey: collectionFamilyKey,
         variantLabel: optionName && canReplaceMetadata ? optionName : current.variantLabel,
+        // 2026-09-17: unitPrice·unitLabel은 항상 같은 조건으로 함께 갱신해야 서로 다른
+        // 기준끼리 짝이 어긋나지 않는다. 예전엔 unitLabel만 capacityText(상품 전체 용량,
+        // 예: "1kg")를 썼는데 unitPrice는 collectionVariant.unitPrice(항상 "100g"/"10ml"
+        // 등 정규화된 기준)를 써서, "100g당" 가격에 "1kg" 라벨이 붙어 실제보다 10배
+        // 싸 보이는 표시로 이어졌다.
         unitPrice: effectivePrice > 0 && collectionVariant.unitPrice !== null && canReplaceMetadata ? collectionVariant.unitPrice : current.unitPrice,
-        unitLabel: capacityText && canReplaceMetadata ? capacityText : current.unitLabel,
+        unitLabel: effectivePrice > 0 && collectionVariant.unitPrice !== null && canReplaceMetadata ? collectionVariant.unitLabel : current.unitLabel,
         quantity: quantity && canReplaceMetadata ? quantity : current.quantity,
         packSize: packSize && canReplaceMetadata ? packSize : current.packSize,
         optionMetadataSource: canReplaceMetadata && (optionName || capacityText || quantity || packSize) ? "collection" as const : current.optionMetadataSource,
@@ -1153,7 +1180,11 @@ export async function saveAdminConfirmedPrice(userId: number, productId: number,
     const result = await tx.insert(userConfirmedPrices).values({ userId, productId, price, checkedAt, sourceUrl, note, importKey }).onDuplicateKeyUpdate({ set: { importKey } });
     const affectedRows = getAffectedRows(result);
 
-    const latestPriceObservationAt = product.wowMemberPriceObservedAt ?? product.lastSeenAt;
+    // 2026-09-17: 수집기 관측 반영 로직(recordCollectedPriceItems)과 같은 이유로
+    // wowMemberPriceObservedAt 대신 lastSeenAt만 기준으로 삼는다 — wowMemberPriceObservedAt은
+    // 품절 관측에서는 갱신되지 않으므로, 그 값에 기대면 이미 더 최근에 확인된 품절
+    // 상태를 관리자의 오래된 확인 가격이 되돌릴 수 있었다.
+    const latestPriceObservationAt = product.lastSeenAt;
     if (checkedAt.getTime() >= latestPriceObservationAt.getTime()) {
       await tx.update(products).set({
         currentPrice: price,
@@ -1439,6 +1470,20 @@ export async function upsertCoupangProduct(product: CoupangProduct, source: Prod
   const refreshedDeepLinkStatus = getDeepLinkStatusAfterExactSkuRefresh(existing?.deepLinkStatus);
   const currentPrice = chooseTrackedPrice(product.productPrice, existing);
   const variant = describeProductVariant(product.productName, currentPrice, product.categoryName);
+  // 2026-09-17: 공식 Coupang Partners API 응답으로 상품을 upsert할 때 variantLabel/
+  // unitPrice/unitLabel/quantity를 조건 없이 항상 덮어쓰던 버그가 있었다. 두 가지
+  // 문제가 있었음: (1) 관리자가 "옵션 수정"에서 직접 고친 값(optionMetadataSource
+  // ==="manual", 이 스키마의 기본값이기도 함)이 다음 정기 갱신 때 그냥 사라짐.
+  // (2) 공식 API가 돌려준 product.productName에 규격 정보가 전혀 없으면(옵션명이
+  // 아니라 이름 자체에만 의존하는 describeProductVariant 특성상 흔함) variant.*가
+  // 통째로 null이 되어, 이전에 정상적으로 채워져 있던 값까지 함께 지워짐. 수집기
+  // 반영 경로(recordCollectedPriceItems의 canReplaceMetadata)와 같은 원칙을 적용한다:
+  // optionMetadataSource가 "manual"이고 기존 값이 이미 채워져 있으면 보존하고,
+  // unitPrice만 새 가격 기준으로 다시 계산해서(관리자가 입력한 unitLabel과 항상
+  // 짝이 맞도록) 함께 저장한다.
+  const hasProtectedManualOption = existing?.optionMetadataSource === "manual"
+    && Boolean(existing.variantLabel) && Boolean(existing.unitLabel) && existing.quantity !== null;
+  const preservedQuantity = hasProtectedManualOption ? existing!.quantity : variant.quantity;
   const values = {
     externalProductId,
     name: product.productName,
@@ -1446,13 +1491,21 @@ export async function upsertCoupangProduct(product: CoupangProduct, source: Prod
     affiliateUrl: product.productUrl,
     categoryName: product.categoryName ?? null,
     familyKey: getProductFamilyKey(product.productName),
-    variantLabel: variant.variantLabel,
-    unitPrice: variant.unitPrice,
-    unitLabel: variant.unitLabel,
-    quantity: variant.quantity,
+    variantLabel: hasProtectedManualOption ? existing!.variantLabel : variant.variantLabel,
+    unitPrice: hasProtectedManualOption
+      ? Math.round(currentPrice / (preservedQuantity ?? 1))
+      : variant.unitPrice,
+    unitLabel: hasProtectedManualOption ? existing!.unitLabel : variant.unitLabel,
+    quantity: preservedQuantity,
     trackingPriority: source === "search" ? "low" as const : "normal" as const,
     currentPrice,
     lowestPrice: currentPrice,
+    // 2026-09-17: 예전엔 이 upsert가 inStock을 아예 갱신하지 않아서, 수집기가 한 번
+    // 품절로 저장한 상품은 공식 API 응답에 유효 가격과 함께 다시 나타나도 계속
+    // "품절"로 남아있는 버그가 있었다. 공식 API가 유효 가격과 함께 상품을 돌려줬다는
+    // 것 자체가 지금 이 시점의 재고 상태를 나타내므로(재고가 없으면 보통 가격이
+    // 비거나 상품이 아예 응답에서 빠짐) currentPrice > 0이면 재입고로 간주한다.
+    inStock: currentPrice > 0,
     source,
     isRocket: Boolean(product.isRocket),
     isFreeShipping: Boolean(product.isFreeShipping),
@@ -1481,6 +1534,7 @@ export async function upsertCoupangProduct(product: CoupangProduct, source: Prod
       deepLinkFailureReason: null,
       currentPrice: values.currentPrice,
       lowestPrice: sql`LEAST(${products.lowestPrice}, ${values.currentPrice})`,
+      inStock: values.inStock,
       source: values.source,
       isRocket: values.isRocket,
       isFreeShipping: values.isFreeShipping,
