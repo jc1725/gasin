@@ -5,6 +5,7 @@ import { ENV } from "./_core/env";
 import * as db from "./db";
 import { checkAndSendExtensionPriceAlerts } from "./priceAlertService";
 import { generatePendingDeepLinksForProductIds } from "./deepLinks";
+import { logError, logInfo, logWarn } from "./_core/log";
 
 const collectBodySchema = z.object({
   source: z.literal("gasyn-extension"),
@@ -64,6 +65,18 @@ function collectionCorsMiddleware(request: Request, response: Response, next: ()
   next();
 }
 
+/**
+ * 스키마 검증 실패를 구조화 로그로 남긴다. 실제 상품명·가격 같은 스크래핑 값은
+ * 신뢰할 수 없는 외부 입력이라 로그에 남기지 않고, 몇 개 중 몇 개가 왜(zod 경로) 실패했는지만 남긴다 —
+ * 쿠팡 페이지 구조 변경으로 수집기 파싱이 깨졌을 때 이 로그만 보고도 원인 필드를 좁힐 수 있게 한다.
+ */
+function logWarnInvalidCollectPayload(request: Request, error: z.ZodError) {
+  const rawItems = (request.body as { items?: unknown[] } | null)?.items;
+  const itemCount = Array.isArray(rawItems) ? rawItems.length : null;
+  const issuePaths = error.issues.slice(0, 20).map(issue => issue.path.join("."));
+  logWarn("collect_payload_invalid", "collector_extension", { itemCount, issueCount: error.issues.length, issuePaths });
+}
+
 function authorize(request: Request, response: Response) {
   if (!ENV.gasynCollectToken) {
     response.status(503).json({ error: "Collection API token is not configured" });
@@ -83,8 +96,15 @@ export function registerCollectionRoutes(app: Express) {
 
   app.post("/api/collect", async (request, response) => {
     if (!authorize(request, response)) return;
+    const startedAt = Date.now();
     const parsed = collectBodySchema.safeParse(request.body);
     if (!parsed.success) {
+      // 2026-09-18: 구조화 로그 적용 — 쿠팡 페이지 구조가 바뀌면 수집기가 스키마에 안
+      // 맞는 값을 보내기 시작하는데, 예전엔 이 경로에 로그가 전혀 없어서 확장이 조용히
+      // 계속 실패해도 서버 쪽에서 알아챌 방법이 없었다. itemCount·에러 경로만 남기고
+      // 상품명 등 실제 페이로드 내용은 남기지 않는다(스크래핑 데이터는 신뢰 불가 외부
+      // 입력이라 로그에 그대로 적재하지 않는다).
+      logWarnInvalidCollectPayload(request, parsed.error);
       response.status(400).json({ error: "Invalid collection payload", details: parsed.error.flatten() });
       return;
     }
@@ -97,7 +117,7 @@ export function registerCollectionRoutes(app: Express) {
         try {
           deepLinks = await generatePendingDeepLinksForProductIds(pendingDeepLinkProductIds);
         } catch (deepLinkError) {
-          console.error("[Collect API] Failed to generate collector-verified deep links", deepLinkError);
+          logError("collect_deep_link_generation_failed", "collector_extension", deepLinkError, { pendingDeepLinkCount: pendingDeepLinkProductIds.length });
           deepLinks = { processedCount: 0, detail: "수집 관측은 저장됐으며 딥링크 생성은 다음 안전한 실행에서 재시도합니다." };
         }
       }
@@ -105,11 +125,26 @@ export function registerCollectionRoutes(app: Express) {
       try {
         alerts = await checkAndSendExtensionPriceAlerts(result.alertProductIds);
       } catch (alertError) {
-        console.error("[Collect API] Failed to evaluate extension price alerts", alertError);
+        logError("collect_price_alert_evaluation_failed", "collector_extension", alertError, { alertProductCount: result.alertProductIds.length });
       }
+      // 큐 정체·FK 오류처럼 "이 배치가 실제로 뭘 했는지"가 진단하기 어려웠던 과거
+      // 버그들을 계기로, 배치당 결과 요약(생성/갱신/오래된 관측/딥링크/알림 건수)을
+      // 한 줄 남긴다 — 어떤 상품이었는지는 남기지 않고(외부 데이터), 집계 수치만 남긴다.
+      logInfo("collect_batch_success", "collector_extension", {
+        itemCount: items.length,
+        stored: result.stored,
+        skipped: result.skipped,
+        created: result.products.created,
+        updated: result.products.updated,
+        stale: result.products.stale,
+        priceHistoryAdded: result.products.priceHistoryAdded,
+        alertCount: result.alertProductIds.length,
+        deepLinkProcessed: deepLinks.processedCount,
+        durationMs: Date.now() - startedAt,
+      });
       response.status(201).json({ ok: true, received: items.length, ...result, deepLinks, alerts });
     } catch (error) {
-      console.error("[Collect API] Failed to persist collected prices", error);
+      logError("collect_batch_failed", "collector_extension", error, { itemCount: items.length, durationMs: Date.now() - startedAt });
       response.status(500).json({ error: "Failed to persist collected prices" });
     }
   });

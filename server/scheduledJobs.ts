@@ -9,6 +9,7 @@ import { CoupangRateLimitError } from "./coupangRateLimit";
 import { syncProductsToPersonalGoogleDrive } from "./googleDrivePersonal";
 import { sdk } from "./_core/sdk";
 import { isExcludedTrackingCategory } from "./categoryEligibility";
+import { logError, logInfo } from "./_core/log";
 
 type JobKey = "goldbox" | "bestcategory" | "price" | "retention";
 type JobOutcome = { processedCount: number; detail?: string; skipped?: boolean };
@@ -343,15 +344,23 @@ async function authorizeJob(req: Request, res: Response, jobKey: JobKey) {
   return true;
 }
 
+// 2026-09-18: 구조화 로그 적용 — runTrackedJob()이 이미 syncRuns 테이블에 성공/실패를
+// 기록하지만, 그 호출이 "스케줄러가 호출했는지" 아니면 같은 로직을 관리자가 수동으로
+// 트리거했는지는 구분하지 않는다(예: refreshGoldBox 관리자 수동 버튼도 같은 collectGoldBoxProducts를
+// 호출). syncRuns에 트리거 출처 컬럼을 추가하는 스키마 변경은 이번엔 범위를 벗어나 보류하고,
+// 대신 route: "scheduler" 태그를 단 로그로 Railway 로그 뷰에서 이 경로만 필터링할 수 있게 한다.
 function createHandler(jobKey: JobKey, action: () => Promise<unknown>) {
   return async (req: Request, res: Response) => {
+    const startedAt = Date.now();
     try {
       if (!(await authorizeJob(req, res, jobKey))) return;
+      logInfo("scheduled_job_start", "scheduler", { jobKey });
       const result = await action();
+      logInfo("scheduled_job_success", "scheduler", { jobKey, durationMs: Date.now() - startedAt });
       res.json({ ok: true, result });
     } catch (error) {
       const detail = error instanceof Error ? error.message : "Unknown scheduled job error";
-      console.error(`[Scheduled ${jobKey}]`, error);
+      logError("scheduled_job_failed", "scheduler", error, { jobKey, durationMs: Date.now() - startedAt });
       res.status(500).json({
         error: detail,
         context: { jobKey, url: req.originalUrl },

@@ -3,6 +3,7 @@ import type { Express, Request, Response } from "express";
 import { ENV } from "./_core/env";
 import { refreshDeferredSearchPrices } from "./scheduledJobs";
 import { enqueueFavoritedProductsForPriceRefresh } from "./db";
+import { logError, logInfo } from "./_core/log";
 
 let refreshRunning = false;
 let favoritesRefreshRunning = false;
@@ -31,8 +32,12 @@ export function registerExternalPriceRefreshRoute(
     // cron-job.org의 30초 제한과 무관하게 요청은 즉시 승인하고,
     // 쿠팡 API·DB 작업은 서버 백그라운드에서 실행합니다.
     refreshRunning = true;
-    void Promise.resolve().then(action).catch(error => {
-      console.error("[External price refresh] background job failed", error);
+    const startedAt = Date.now();
+    logInfo("external_price_refresh_start", "external_cron", { endpoint: "price-refresh" });
+    void Promise.resolve().then(action).then(() => {
+      logInfo("external_price_refresh_success", "external_cron", { endpoint: "price-refresh", durationMs: Date.now() - startedAt });
+    }).catch(error => {
+      logError("external_price_refresh_failed", "external_cron", error, { endpoint: "price-refresh", durationMs: Date.now() - startedAt });
     }).finally(() => {
       refreshRunning = false;
     });
@@ -60,11 +65,14 @@ export function registerExternalFavoritesRefreshRoute(
       return res.status(202).json({ ok: true, accepted: true, skipped: "already-running" });
     }
     favoritesRefreshRunning = true;
+    const startedAt = Date.now();
+    logInfo("external_favorites_refresh_start", "external_cron", { endpoint: "favorites-refresh" });
     try {
       const result = await action();
+      logInfo("external_favorites_refresh_success", "external_cron", { endpoint: "favorites-refresh", durationMs: Date.now() - startedAt, ...result });
       return res.status(200).json({ ok: true, ...result });
     } catch (error) {
-      console.error("[External favorites refresh] job failed", error);
+      logError("external_favorites_refresh_failed", "external_cron", error, { endpoint: "favorites-refresh", durationMs: Date.now() - startedAt });
       return res.status(500).json({ ok: false, error: "찜한 상품 수집기 대기열 등록에 실패했습니다." });
     } finally {
       favoritesRefreshRunning = false;
