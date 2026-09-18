@@ -2375,7 +2375,8 @@ export async function getStaleTrackedProductsForExtensionRevisit(limit: number, 
   const db = await getDb();
   if (!db) return [];
   const staleBefore = new Date(Date.now() - Math.max(minStaleMs, 0));
-  return db
+  const clampedLimit = Math.min(Math.max(limit, 1), EXTENSION_AUTO_REVISIT_MAX_LIMIT);
+  const rows = await db
     .select({
       id: products.id,
       externalProductId: products.externalProductId,
@@ -2389,7 +2390,15 @@ export async function getStaleTrackedProductsForExtensionRevisit(limit: number, 
       lt(products.lastSeenAt, staleBefore),
     ))
     .orderBy(asc(products.lastSeenAt))
-    .limit(Math.min(Math.max(limit, 1), EXTENSION_AUTO_REVISIT_MAX_LIMIT));
+    // 2026-09-18: 카테고리 제외 필터가 생기기 전에 저장된 trip.coupang.com(쿠팡
+    // 트래블) 잔여 행이 있으면, 이 후보 목록을 통해 수집기가 매번 헛방문(탭만
+    // 열고 20초 타임아웃)을 반복하게 된다. 여기서도 한 번 더 걸러서 그런 잔여
+    // 행이 후보로 다시 나가지 않게 한다 — 근본적으로는 관리자가 해당 행을
+    // 직접 삭제해야 한다(이 함수는 새 후보 선정만 막을 뿐 기존 행을 지우지 않음).
+    .limit(clampedLimit * 2);
+  return rows
+    .filter(row => !isExcludedTrackingCategory({ name: row.name, url: row.url }))
+    .slice(0, clampedLimit);
 }
 
 /**
