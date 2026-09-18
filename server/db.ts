@@ -428,7 +428,7 @@ export async function recordCollectedPriceItems(items: CollectedPriceInput[]) {
     const alertProductIds = new Set<number>();
     const pendingDeepLinkProductIds = new Set<number>();
     for (const item of items) {
-      if (isExcludedTrackingCategory({ pageType: item.pageType, name: item.name })) {
+      if (isExcludedTrackingCategory({ pageType: item.pageType, name: item.name, url: item.url })) {
         skipped += 1;
         console.info(`[Tracking] ${EXCLUDED_TRACKING_CATEGORY_LABEL} 수집 관측을 저장하지 않습니다: ${item.name}`);
         continue;
@@ -1588,7 +1588,7 @@ export async function upsertCoupangProduct(product: CoupangProduct, source: Prod
 export async function upsertCoupangProducts(items: CoupangProduct[], source: ProductSource) {
   const saved = [];
   for (const item of items) {
-    if (isExcludedTrackingCategory({ categoryName: item.categoryName, productName: item.productName })) {
+    if (isExcludedTrackingCategory({ categoryName: item.categoryName, productName: item.productName, url: item.productUrl })) {
       console.info(`[Tracking] ${EXCLUDED_TRACKING_CATEGORY_LABEL} 제외 상품을 저장하지 않습니다: ${item.productName}`);
       continue;
     }
