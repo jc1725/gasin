@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, like, lt, lte, ne, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, like, lt, lte, ne, notInArray, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   categoryBestProducts,
@@ -1595,6 +1595,31 @@ export async function upsertCoupangProducts(items: CoupangProduct[], source: Pro
     saved.push(await upsertCoupangProduct(item, source));
   }
   return saved;
+}
+
+/**
+ * 2026-09-18: 골드박스는 하루 1번(오후 8시) 전체 목록을 통째로 갱신하는데, 이번에
+ * 받은 목록에 더 이상 없는(즉 골드박스에서 빠진) 예전 상품이 isActive: true로 계속
+ * 남아있으면 사용자 화면(catalog.list source=goldbox, isActive만 필터링)에 어제
+ * 목록과 오늘 목록이 섞여 보인다. 이번 갱신에서 실제로 저장된(=골드박스 응답에 있고
+ * 카테고리 제외 대상도 아닌) externalProductId 집합에 없는 기존 골드박스 상품은
+ * isActive: false로 내린다. 완전 삭제는 아니라서 가격 이력·즐겨찾기 연결은 보존되고,
+ * 나중에 골드박스에 다시 등장하면 upsertCoupangProduct가 그대로 isActive: true로
+ * 되살린다.
+ */
+export async function deactivateStaleProductsForSource(source: ProductSource, freshExternalProductIds: string[]) {
+  const db = await getDb();
+  if (!db) return { deactivatedCount: 0 };
+  const freshSet = freshExternalProductIds.length > 0 ? freshExternalProductIds : ["__none__"];
+  const result = await db
+    .update(products)
+    .set({ isActive: false })
+    .where(and(
+      eq(products.source, source),
+      eq(products.isActive, true),
+      notInArray(products.externalProductId, freshSet),
+    ));
+  return { deactivatedCount: getAffectedRows(result) };
 }
 
 export async function replaceCategoryBestProducts(categoryId: number, productIds: number[]) {

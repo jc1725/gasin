@@ -11,7 +11,7 @@ import { serveStatic, setupVite } from "./vite";
 import { registerGoogleOAuthRoutes } from "../googleAuth";
 import { registerKakaoOAuthRoutes } from "../kakaoAuth";
 import { registerPriceAlertRoutes } from "../priceAlertRoutes";
-import { registerScheduledJobRoutes } from "../scheduledJobs";
+import { registerScheduledJobRoutes, refreshDeferredSearchPrices, runGoldBoxDailySchedule } from "../scheduledJobs";
 import { registerCollectionRoutes } from "../collectionRoutes";
 import { registerWebPushConfigRoutes } from "../webPushConfigRoutes";
 import { registerExternalPriceRefreshRoute, registerExternalFavoritesRefreshRoute } from "../externalPriceRefresh";
@@ -58,7 +58,19 @@ async function startServer() {
   registerKakaoOAuthRoutes(app);
   registerPriceAlertRoutes(app);
   registerScheduledJobRoutes(app);
-  registerExternalPriceRefreshRoute(app);
+  // 2026-09-18: 골드박스 매일 오후 8시 자동 갱신(실패 시 3분 뒤 재시도)을 위해 별도
+  // 외부 크론을 새로 설정하지 않고, cron-job.org가 이미 약 3분 간격으로 안정적으로
+  // 호출하는 이 heartbeat에 게이팅된 골드박스 스케줄을 얹는다. runGoldBoxDailySchedule은
+  // 시각·직전 결과를 스스로 판단해 대부분의 호출에서는 즉시 반환하는 사실상 no-op이며,
+  // 실패해도 절대 throw하지 않아 기존 가격 갱신(refreshDeferredSearchPrices)의 성공/실패
+  // 신호에 영향을 주지 않는다.
+  registerExternalPriceRefreshRoute(app, async () => {
+    const [priceResult] = await Promise.all([
+      refreshDeferredSearchPrices(),
+      runGoldBoxDailySchedule(),
+    ]);
+    return priceResult;
+  });
   registerExternalFavoritesRefreshRoute(app);
   registerLighthouseAuditRoute(app);
   registerCollectionRoutes(app);

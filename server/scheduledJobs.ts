@@ -228,12 +228,81 @@ export async function collectGoldBoxProducts() {
     }
     const products = await getGoldBoxProducts();
     const saved = await db.upsertCoupangProducts(products, "goldbox");
+    // 2026-09-18: 골드박스는 하루 1번 전체가 갱신되므로, 이번에 실제로 저장된 목록에
+    // 없는 예전 골드박스 상품은 화면에서 내린다(isActive: false) — 어제 목록이 오늘
+    // 목록과 섞여 보이는 걸 막는다.
+    const staleCleanup = await db.deactivateStaleProductsForSource("goldbox", saved.map(product => product.externalProductId));
     const deepLinkBatch = await generatePendingDeepLinks();
     const activatedManualLinks = await db.activateManualTracksForKnownProducts();
     const driveSnapshot = await syncProductSnapshotToDrive();
     await db.markScheduleCompleted("goldbox");
-    return { processedCount: saved.length, detail: `GoldBox 상품을 갱신했습니다. ${deepLinkBatch.detail}. 수동 대기 링크 ${activatedManualLinks}개를 활성화했습니다. ${driveSnapshot}.` } satisfies JobOutcome;
+    return { processedCount: saved.length, detail: `GoldBox 상품을 갱신했습니다. 이전 골드박스 상품 ${staleCleanup.deactivatedCount}개는 이번 목록에 없어 화면에서 내렸습니다. ${deepLinkBatch.detail}. 수동 대기 링크 ${activatedManualLinks}개를 활성화했습니다. ${driveSnapshot}.` } satisfies JobOutcome;
   });
+}
+
+// ============================================================
+// 골드박스 매일 오후 8시(KST) 자동 갱신
+// ------------------------------------------------------------
+// 2026-09-18: cron-job.org가 /api/external/price-refresh를 약 3분 간격으로 안정적으로
+// 호출하고 있는 것을 확인해(Railway 로그로 검증), 별도의 새 외부 크론을 추가로 설정할
+// 필요 없이 그 3분 heartbeat에 얹어서 게이팅한다 — 실제 실행은 이 함수가 시각·직전
+// 결과를 보고 스스로 결정하므로, 3분마다 불려도 대부분은 조건 미충족으로 즉시
+// 반환된다(사실상 no-op).
+//
+// 정책: 매일 KST 20:00 이후 처음 호출될 때 실행. 성공하면 markScheduleCompleted로
+// 기록되고(collectGoldBoxProducts 내부), 그날은 20:00 이후 syncRuns에 success 기록이
+// 있으므로 다시 실행하지 않는다. 실패하면 다음 호출(최대 3분 뒤) 때 재시도한다.
+// ============================================================
+const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
+const GOLDBOX_DAILY_RUN_HOUR_KST = 20; // 오후 8시
+const GOLDBOX_RETRY_AFTER_FAILURE_MS = 3 * 60 * 1000; // 3분
+
+function kstWallClock(date: Date) {
+  const shifted = new Date(date.getTime() + KST_OFFSET_MS);
+  return {
+    hour: shifted.getUTCHours(),
+    year: shifted.getUTCFullYear(),
+    month: shifted.getUTCMonth(),
+    day: shifted.getUTCDate(),
+  };
+}
+
+/** 오늘(KST) GOLDBOX_DAILY_RUN_HOUR_KST 시각에 해당하는 실제 UTC Date 인스턴트. */
+function todayGoldBoxThresholdUtc(now: Date) {
+  const { year, month, day } = kstWallClock(now);
+  const thresholdAsIfUtc = Date.UTC(year, month, day, GOLDBOX_DAILY_RUN_HOUR_KST, 0, 0, 0);
+  return new Date(thresholdAsIfUtc - KST_OFFSET_MS);
+}
+
+export async function runGoldBoxDailySchedule(now: Date = new Date()) {
+  const { hour } = kstWallClock(now);
+  if (hour < GOLDBOX_DAILY_RUN_HOUR_KST) {
+    return { ran: false, reason: "오후 8시 전이라 대기" } as const;
+  }
+
+  const threshold = todayGoldBoxThresholdUtc(now);
+  const lastRun = await db.getLatestSyncRun("goldbox");
+
+  if (lastRun && lastRun.status === "success" && lastRun.startedAt >= threshold) {
+    return { ran: false, reason: "오늘 이미 성공적으로 갱신함" } as const;
+  }
+  if (lastRun && lastRun.status === "failed" && lastRun.startedAt >= threshold) {
+    const elapsedSinceFailure = now.getTime() - lastRun.startedAt.getTime();
+    if (elapsedSinceFailure < GOLDBOX_RETRY_AFTER_FAILURE_MS) {
+      return { ran: false, reason: "직전 실패 후 3분 재시도 대기 중" } as const;
+    }
+  }
+  // status === "running"인 경우(다른 호출이 지금 처리 중)는 runTrackedJob이 별도로
+  // 동시성을 막지 않으므로, 여기서는 그냥 다시 시도한다 — collectGoldBoxProducts
+  // 자체가 멱등적(같은 상품을 다시 upsert)이라 안전하다.
+
+  try {
+    const result = await collectGoldBoxProducts();
+    return { ran: true, result } as const;
+  } catch (error) {
+    logError("goldbox_daily_schedule_failed", "external_cron", error, { endpoint: "goldbox-daily" });
+    return { ran: true, error: error instanceof Error ? error.message : "Unknown error" } as const;
+  }
 }
 
 export async function collectBestCategoryProducts() {
