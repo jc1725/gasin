@@ -150,10 +150,9 @@ export function registerCollectionRoutes(app: Express) {
   });
 
   // 가신 수집기의 "백그라운드 자동 순회" 기능이 다음에 방문할 상품 후보를 요청하는
-  // 엔드포인트. /api/collect와 같은 Bearer 토큰으로 인증한다. collection 소스뿐
-  // 아니라 goldbox·bestcategory 소스도 포함한다 — db.getStaleTrackedProductsForExtensionRevisit
-  // 주석 참고(2026-09-15: 이 두 소스가 refreshTrackedPrices 미연결로 사실상 방치돼
-  // 있던 것을 확인해 포함시킴).
+  // 엔드포인트. /api/collect와 같은 Bearer 토큰으로 인증한다. 2026-09-18부터 소스
+  // 제한 없이 전체 상품을 대상으로 lastSeenAt이 가장 오래된 순으로 후보를 낸다 —
+  // db.getStaleTrackedProductsForExtensionRevisit 주석 참고.
   app.get("/api/collect/candidates", async (request, response) => {
     if (!authorize(request, response)) return;
     const limitRaw = Number(request.query.limit);

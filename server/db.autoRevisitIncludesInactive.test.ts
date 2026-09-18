@@ -18,8 +18,27 @@ describe("가신 수집기 자동 순회 후보 — isActive 상태와 무관하
     const fnEnd = db.indexOf("\n}", fnStart);
     const fnBody = db.slice(fnStart, fnEnd);
 
-    expect(fnBody).toContain("inArray(products.source, EXTENSION_AUTO_REVISIT_SOURCES)");
     expect(fnBody).toContain("lt(products.lastSeenAt, staleBefore)");
     expect(fnBody).not.toContain("eq(products.isActive, true)");
+  });
+});
+
+// 2026-09-18: 원래 collection·goldbox·bestcategory 세 소스만 대상이었는데, 전체
+// 14,083개 상품 중 이 세 소스가 302개뿐이라 나머지 98%(search 소스, 최대 16일+
+// 미확인 상품 다수 포함)가 자동 순회 대상에서 아예 빠져 있었다. 그 결과 "가장
+// 오래 확인 안 된 상품부터" 방문한다는 설명과 달리, 전체 상품 기준으로 보면
+// 방문 순서가 뒤죽박죽으로 보이는 문제가 있었다(사용자 제보). 소스 제한을
+// 없애고 전체 상품을 통틀어 lastSeenAt 오름차순으로 후보를 내도록 변경.
+describe("가신 수집기 자동 순회 후보 — 소스 제한 없이 전체 상품 대상", () => {
+  it("getStaleTrackedProductsForExtensionRevisit이 더 이상 source로 후보를 제한하지 않는다(전체 상품 대상)", () => {
+    const fnStart = db.indexOf("export async function getStaleTrackedProductsForExtensionRevisit");
+    expect(fnStart).toBeGreaterThan(-1);
+    const fnEnd = db.indexOf("\n}", fnStart);
+    const fnBody = db.slice(fnStart, fnEnd);
+
+    expect(fnBody).not.toContain("inArray(products.source");
+    expect(fnBody).not.toContain("EXTENSION_AUTO_REVISIT_SOURCES");
+    expect(fnBody).toContain("lt(products.lastSeenAt, staleBefore)");
+    expect(fnBody).toContain(".where(lt(products.lastSeenAt, staleBefore))");
   });
 });

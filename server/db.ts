@@ -2393,8 +2393,18 @@ export const EXTENSION_AUTO_REVISIT_MAX_LIMIT = 30;
  * 자동 순회가 다시 방문하게 한다 — 실제로 사라진 상품이면 이번에 완전 삭제되고,
  * 아직 살아있는 상품이면(예: 일시적 오탐으로 비활성화됐던 경우) 정상 관측이
  * 다시 쌓이며 활성 상태로 자연스럽게 돌아온다.
+ *
+ * 2026-09-18: 원래는 collection·goldbox·bestcategory 세 소스만 대상이었다(search는
+ * `refreshDeferredSearchPrices`가 별도로 3분마다 배치 처리 중이라 제외). 그런데
+ * 전체 14,083개 상품 중 이 세 소스는 302개뿐이고, 나머지 98%인 search 소스가
+ * "관리자 화면 기준 진짜 가장 오래된" 상품들(최대 16일 이상 미확인)을 독차지하고
+ * 있었다 — 그 결과 이 기능이 "가장 오래 확인 안 된 상품부터"라는 설명과 달리
+ * 실제로는 좁은 302개 안에서만 오래된 순이라, 사용자 입장에선 전체 상품 기준으로
+ * 볼 때 방문 순서가 뒤죽박죽(사실상 무작위)으로 보였다. 사용자 요청으로 소스
+ * 제한을 없애고 전체 상품을 통틀어 lastSeenAt이 가장 오래된 순으로 후보를 낸다 —
+ * search 소스도 정확 SKU를 직접 재조회하는 공식 API가 없다는 점(collection과 동일한
+ * 근본 원인)에서 브라우저 방문으로 재확인하는 게 오히려 맞다.
  */
-const EXTENSION_AUTO_REVISIT_SOURCES = ["collection", "goldbox", "bestcategory"] as const;
 
 export async function getStaleTrackedProductsForExtensionRevisit(limit: number, minStaleMs: number) {
   const db = await getDb();
@@ -2410,10 +2420,7 @@ export async function getStaleTrackedProductsForExtensionRevisit(limit: number, 
       lastSeenAt: products.lastSeenAt,
     })
     .from(products)
-    .where(and(
-      inArray(products.source, EXTENSION_AUTO_REVISIT_SOURCES),
-      lt(products.lastSeenAt, staleBefore),
-    ))
+    .where(lt(products.lastSeenAt, staleBefore))
     .orderBy(asc(products.lastSeenAt))
     // 2026-09-18: 카테고리 제외 필터가 생기기 전에 저장된 trip.coupang.com(쿠팡
     // 트래블) 잔여 행이 있으면, 이 후보 목록을 통해 수집기가 매번 헛방문(탭만
