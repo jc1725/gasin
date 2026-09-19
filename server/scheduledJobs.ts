@@ -6,7 +6,7 @@ import { generatePendingDeepLinks } from "./deepLinks";
 import { buildPriceRefreshSearchKeyword } from "./priceRefreshSearchQuery";
 import { findSkuWithFallbackQueries } from "./multiStageSkuMatcher";
 import { CoupangRateLimitError } from "./coupangRateLimit";
-import { syncProductsToPersonalGoogleDrive } from "./googleDrivePersonal";
+import { GoogleDriveTokenDecryptionError, syncProductsToPersonalGoogleDrive } from "./googleDrivePersonal";
 import { sdk } from "./_core/sdk";
 import { isExcludedTrackingCategory } from "./categoryEligibility";
 import { logError, logInfo } from "./_core/log";
@@ -146,6 +146,7 @@ async function recheckDeferredSearchProductsForPriceJob() {
 
 export async function syncProductSnapshotToDrive() {
   const runId = await db.startSyncRun("drive");
+  let connectionUserId: number | null = null;
   try {
     const connection = await db.getGoogleDriveSnapshotConnection();
     if (!connection) {
@@ -153,6 +154,7 @@ export async function syncProductSnapshotToDrive() {
       await db.finishSyncRun(runId, "success", 0, detail);
       return detail;
     }
+    connectionUserId = connection.userId;
     const products = await db.listAllTrackedProducts();
     const result = await syncProductsToPersonalGoogleDrive({
       refreshTokenCiphertext: connection.refreshTokenCiphertext,
@@ -165,8 +167,20 @@ export async function syncProductSnapshotToDrive() {
     await db.finishSyncRun(runId, "success", products.length, detail);
     return detail;
   } catch (error) {
-    const message = error instanceof Error ? error.message : "알 수 없는 Google Drive 동기화 오류";
     console.error("[Google Drive sync]", error);
+    // 2026-09-19: 토큰 복호화 실패(JWT_SECRET 변경 등)는 재시도해도 절대 성공하지
+    // 않는 영구 오류다. 이걸 구분하지 않으면 3분마다 도는 자동 동기화가 매번 같은
+    // 실패를 반복하며 에러 로그만 쌓인다. 복호화 실패로 확인되면 연결을 끊어서
+    // 다음부터는 "연결 대기 중"으로 조용히 표시되게 하고, 사용자가 설정에서
+    // Google Drive를 다시 연결하면 saveGoogleDriveConnection이 새 암호문으로
+    // 덮어써 자동으로 복구된다.
+    if (error instanceof GoogleDriveTokenDecryptionError && connectionUserId !== null) {
+      await db.deleteGoogleDriveConnection(connectionUserId);
+      const detail = "Google Drive 연결이 만료되어 자동 백업을 해제했습니다. 설정에서 Google Drive를 다시 연결해 주세요.";
+      await db.finishSyncRun(runId, "failed", 0, detail);
+      return detail;
+    }
+    const message = error instanceof Error ? error.message : "알 수 없는 Google Drive 동기화 오류";
     const detail = `Google Drive 상품 스냅샷 동기화 보류: ${message}`;
     await db.finishSyncRun(runId, "failed", 0, detail);
     return detail;

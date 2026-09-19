@@ -920,6 +920,12 @@ export async function saveGoogleDriveConnection(input: { userId: number; refresh
   return getGoogleDriveConnectionForUser(input.userId);
 }
 
+export async function deleteGoogleDriveConnection(userId: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db.delete(googleDriveConnections).where(eq(googleDriveConnections.userId, userId));
+}
+
 export async function saveGoogleDriveSnapshotFile(userId: number, snapshotFileId: string) {
   const db = await getDb();
   if (!db) throw new Error("Database is unavailable");

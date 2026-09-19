@@ -24,12 +24,30 @@ export function encryptGoogleDriveRefreshToken(refreshToken: string, secret?: st
   return [iv, tag, encrypted].map(part => part.toString("base64url")).join(".");
 }
 
+// 2026-09-19: JWT_SECRET이 바뀌었거나(예: Manus → Railway 마이그레이션) 저장된
+// 암호문이 손상된 경우, AES-GCM 인증 태그 검증이 영구적으로 실패한다(재시도해도
+// 절대 성공하지 않음 — 네트워크 오류처럼 일시적인 게 아니다). 이 경우를 구분되는
+// 타입으로 던져서, 호출부(syncProductSnapshotToDrive)가 "복구 불가능한 연결"로
+// 판단해 연결을 끊고 재연결을 안내할 수 있게 한다. 그렇지 않으면 3분마다 도는
+// 자동 동기화가 영원히 똑같은 실패를 반복하며 에러 로그만 쌓인다.
+export class GoogleDriveTokenDecryptionError extends Error {
+  constructor(cause: unknown) {
+    const reason = cause instanceof Error ? cause.message : String(cause);
+    super(`Google Drive refresh token could not be decrypted: ${reason}`);
+    this.name = "GoogleDriveTokenDecryptionError";
+  }
+}
+
 export function decryptGoogleDriveRefreshToken(ciphertext: string, secret?: string) {
-  const [ivPart, tagPart, encryptedPart] = ciphertext.split(".");
-  if (!ivPart || !tagPart || !encryptedPart) throw new Error("Stored Google Drive token format is invalid");
-  const decipher = crypto.createDecipheriv("aes-256-gcm", getCipherKey(secret), Buffer.from(ivPart, "base64url"));
-  decipher.setAuthTag(Buffer.from(tagPart, "base64url"));
-  return Buffer.concat([decipher.update(Buffer.from(encryptedPart, "base64url")), decipher.final()]).toString("utf8");
+  try {
+    const [ivPart, tagPart, encryptedPart] = ciphertext.split(".");
+    if (!ivPart || !tagPart || !encryptedPart) throw new Error("Stored Google Drive token format is invalid");
+    const decipher = crypto.createDecipheriv("aes-256-gcm", getCipherKey(secret), Buffer.from(ivPart, "base64url"));
+    decipher.setAuthTag(Buffer.from(tagPart, "base64url"));
+    return Buffer.concat([decipher.update(Buffer.from(encryptedPart, "base64url")), decipher.final()]).toString("utf8");
+  } catch (error) {
+    throw new GoogleDriveTokenDecryptionError(error);
+  }
 }
 
 function getGoogleConfig() {
