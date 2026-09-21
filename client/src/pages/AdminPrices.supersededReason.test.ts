@@ -14,9 +14,18 @@ const page = readFileSync(join(process.cwd(), "client/src/pages/AdminPrices.tsx"
 // 저장됨) 계속 "업데이트 안 됨"으로 보이는 혼란이 있었다. lastRefreshReason에 이미
 // "상품 #<새 id>로 사용자 연결 이관" 문구가 저장돼 있으므로, 비활성 행에는 이 사유를
 // 그대로 노출해서 사용자가 새 상품으로 옮겨갔다는 걸 바로 알 수 있게 한다.
-describe("현재 가격 추이 — 비활성(만료 감지/SKU 대체) 상품에 사유 노출", () => {
-  it("isActive가 false이고 lastRefreshReason이 있으면 그 사유 문구를 카드에 표시한다", () => {
-    expect(page).toContain("product.isActive === false && product.lastRefreshReason");
+//
+// 2026-09-21: "이런건 검색한적도 없는데, 왜 수집된거지? 누가 상품등록했음?" — 활성
+// 상품인데도 lastRefreshReason이 있는 경우(예: 수집기 자동 등록/품절 관측 사유)가
+// 사용자에게는 보이지 않아, 매번 저에게 물어봐야 했다. 그래서 "isActive가 false일
+// 때만" 노출하던 조건을 없애고, lastRefreshReason이 있으면 활성/비활성 관계없이
+// 항상 노출하도록 넓혔다. 동시에 상품이 어느 경로(source)로 등록됐는지도 별도 줄로
+// 보여준다(아래 productRegistration.test.ts류가 그 라벨 매핑을 검증).
+describe("현재 가격 추이 — 사유(lastRefreshReason) 노출 범위 확대", () => {
+  it("isActive 여부와 무관하게 lastRefreshReason이 있으면 그 사유 문구를 카드에 표시한다", () => {
+    expect(page).toContain("{product.lastRefreshReason ? <p");
     expect(page).toContain("{product.lastRefreshReason}</p>");
+    // 예전처럼 비활성 상품으로만 제한하는 조건은 더 이상 없어야 한다.
+    expect(page).not.toContain("product.isActive === false && product.lastRefreshReason");
   });
 });
