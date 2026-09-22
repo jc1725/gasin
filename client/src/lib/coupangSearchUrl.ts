@@ -1,13 +1,3 @@
-export function createCoupangProductUrl(productId: string, itemId?: string | null, vendorItemId?: string | null) {
-  const normalizedProductId = productId.trim();
-  if (!normalizedProductId) return null;
-  const params = new URLSearchParams();
-  if (itemId?.trim()) params.set("itemId", itemId.trim());
-  if (vendorItemId?.trim()) params.set("vendorItemId", vendorItemId.trim());
-  const query = params.toString();
-  return `https://www.coupang.com/vp/products/${encodeURIComponent(normalizedProductId)}${query ? `?${query}` : ""}`;
-}
-
 export function createCoupangSearchUrl(keyword: string, qualifiers: Array<string | null | undefined> = []) {
   const terms = [keyword, ...qualifiers]
     .map(value => value?.trim().replace(/\s+/g, " ") ?? "")

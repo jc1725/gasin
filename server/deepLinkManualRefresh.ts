@@ -2,30 +2,12 @@ import * as db from "./db";
 import { searchCatalogSafely } from "./catalogSearch";
 import { generatePendingDeepLinkForProduct } from "./deepLinks";
 
-export type ManualDeepLinkRefreshStatus = "ready" | "collector_verified" | "not_found" | "rate_limited" | "pending";
+export type ManualDeepLinkRefreshStatus = "ready" | "not_found" | "rate_limited" | "pending";
 
 export type ManualDeepLinkRefreshResult = {
   status: ManualDeepLinkRefreshStatus;
   message: string;
 };
-
-function hasRecentCollectorVerifiedExactPurchasePath(product: Awaited<ReturnType<typeof db.getProductById>>, now = new Date()) {
-  if (!product || !product.inStock || !product.affiliateUrl || !product.wowMemberPrice || !product.wowMemberPriceObservedAt) return false;
-  if (product.wowMemberPriceObservedAt.getTime() < now.getTime() - 7 * 24 * 60 * 60 * 1000) return false;
-  const [productId, itemId, vendorItemId] = product.externalProductId.split(":");
-  if (!productId || !itemId || !vendorItemId) return false;
-  try {
-    const url = new URL(product.affiliateUrl);
-    const host = url.hostname.toLowerCase();
-    return url.protocol === "https:"
-      && ["coupang.com", "www.coupang.com", "m.coupang.com"].includes(host)
-      && url.pathname.includes(`/vp/products/${productId}`)
-      && url.searchParams.get("itemId") === itemId
-      && url.searchParams.get("vendorItemId") === vendorItemId;
-  } catch {
-    return false;
-  }
-}
 
 /**
  * 관리자가 요청한 단건 재생성입니다. 상품명과 유사한 다른 옵션은 절대 사용하지 않고,
@@ -58,9 +40,9 @@ export async function refreshDeepLinkForExactSku(productId: number): Promise<Man
       if (saved?.deepLinkStatus === "ready" && saved.deepLinkUrl) {
         return { status: "ready", message: "공식 검색 결과에는 없지만 최근 수집기 관측을 신뢰해 정확 SKU 딥링크를 유지했습니다." };
       }
-      if (hasRecentCollectorVerifiedExactPurchasePath(saved)) {
-        return { status: "collector_verified", message: "파트너스 API 결과에는 없지만 최근 수집기 관측을 신뢰해 정확 SKU의 원본 쿠팡 상품 경로를 유지합니다. 제휴 딥링크는 생성 대기 중입니다." };
-      }
+      // 2026-09-22: 예전엔 여기서 "원본 쿠팡 상품 경로(가신이 직접 조립한 주소) 유지"
+      // (collector_verified)로 응답했다. 쿠팡 접속은 이제 딥링크로만 하므로 원본 경로를
+      // 대체 구매 경로로 쓰지 않고, 딥링크가 생성될 때까지 대기(pending)로 안내한다.
       return { status: "pending", message: generation.detail || "최근 수집기 관측을 신뢰해 정확 SKU 딥링크 생성을 다시 요청했습니다." };
     }
     return {

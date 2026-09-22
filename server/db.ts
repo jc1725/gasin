@@ -2453,11 +2453,20 @@ export async function getStaleTrackedProductsForExtensionRevisit(limit: number, 
       id: products.id,
       externalProductId: products.externalProductId,
       name: products.name,
-      url: products.affiliateUrl,
+      // 2026-09-22: 수집기는 쿠팡 파트너스 딥링크(link.coupang.com)로만 접속한다.
+      // 예전엔 affiliateUrl(www.coupang.com/vp/products/...?itemId=..&vendorItemId=..
+      // 형태로 가신이 직접 조립한 주소)로 방문했는데, 이 직접 접속이 쌓이면서 쿠팡
+      // 계정 접속이 막혔다. 딥링크는 구매용 정식 경로라 막히지 않는다. 딥링크가
+      // 아직 없는(생성 대기·실패) 상품은 후보에서 빼고, 생성될 때까지 기다린다.
+      url: products.deepLinkUrl,
       lastSeenAt: products.lastSeenAt,
     })
     .from(products)
-    .where(lt(products.lastSeenAt, staleBefore))
+    .where(and(
+      lt(products.lastSeenAt, staleBefore),
+      eq(products.deepLinkStatus, "ready"),
+      like(products.deepLinkUrl, "https://link.coupang.com/%"),
+    ))
     .orderBy(asc(products.lastSeenAt))
     // 2026-09-18: 카테고리 제외 필터가 생기기 전에 저장된 trip.coupang.com(쿠팡
     // 트래블) 잔여 행이 있으면, 이 후보 목록을 통해 수집기가 매번 헛방문(탭만
@@ -2466,6 +2475,7 @@ export async function getStaleTrackedProductsForExtensionRevisit(limit: number, 
     // 직접 삭제해야 한다(이 함수는 새 후보 선정만 막을 뿐 기존 행을 지우지 않음).
     .limit(clampedLimit * 2);
   return rows
+    .filter((row): row is typeof row & { url: string } => typeof row.url === "string" && row.url.length > 0)
     .filter(row => !isExcludedTrackingCategory({ name: row.name, url: row.url }))
     .slice(0, clampedLimit);
 }

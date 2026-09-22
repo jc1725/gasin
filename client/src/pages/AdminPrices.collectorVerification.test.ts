@@ -36,7 +36,7 @@ describe("보류상품 수집기 확인 정보", () => {
   });
 
   it("수집기 확인 대기 카드의 쿠팡 상품 ID를 클릭하면 해당 상품 상세 페이지를 새 창에서 연다", () => {
-    expect(source).toContain('const coupangProductPageUrl = coupangProductId ? createCoupangProductUrl(coupangProductId, storedItemId, storedVendorItemId) : null;');
+    expect(source).toContain('const coupangProductPageUrl = product.deepLinkUrl ?? null;');
     expect(source).toContain('data-testid="collector-product-page-link"');
     expect(source).toContain('href={coupangProductPageUrl}');
     expect(source).toContain("쿠팡 상품 ID ${coupangProductId} 상세 페이지 열기");

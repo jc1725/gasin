@@ -1,17 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createCoupangProductUrl, createCoupangSearchUrl } from "./coupangSearchUrl";
-
-describe("createCoupangProductUrl", () => {
-  it("상품 ID·itemId·vendorItemId를 상품 상세 URL에 순서대로 넣는다", () => {
-    expect(createCoupangProductUrl("329389373", "12155685032", "95791858631"))
-      .toBe("https://www.coupang.com/vp/products/329389373?itemId=12155685032&vendorItemId=95791858631");
-  });
-
-  it("옵션 ID가 없으면 상품 상세 URL만 만든다", () => {
-    expect(createCoupangProductUrl("8984414870", null, null))
-      .toBe("https://www.coupang.com/vp/products/8984414870");
-  });
-});
+import { createCoupangSearchUrl } from "./coupangSearchUrl";
 
 describe("createCoupangSearchUrl", () => {
   it("공백을 정리해 쿠팡 검색 대체 경로를 만든다", () => {

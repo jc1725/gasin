@@ -39,6 +39,23 @@ describe("가신 수집기 자동 순회 후보 — 소스 제한 없이 전체 
     expect(fnBody).not.toContain("inArray(products.source");
     expect(fnBody).not.toContain("EXTENSION_AUTO_REVISIT_SOURCES");
     expect(fnBody).toContain("lt(products.lastSeenAt, staleBefore)");
-    expect(fnBody).toContain(".where(lt(products.lastSeenAt, staleBefore))");
+  });
+});
+
+// 2026-09-22: 가신이 직접 조립한 쿠팡 상품 주소(affiliateUrl)로 방문하면서 쿠팡
+// 계정 접속이 막혔다. 수집기는 이제 쿠팡 파트너스 딥링크로만 접속하고, 딥링크가
+// 아직 없는 상품은 생성될 때까지 후보에서 제외한다.
+describe("가신 수집기 자동 순회 후보 — 쿠팡 딥링크로만 방문", () => {
+  const fnStart = db.indexOf("export async function getStaleTrackedProductsForExtensionRevisit");
+  const fnBody = db.slice(fnStart, db.indexOf("\n}", fnStart));
+
+  it("방문 URL은 affiliateUrl이 아니라 deepLinkUrl이다", () => {
+    expect(fnBody).toContain("url: products.deepLinkUrl");
+    expect(fnBody).not.toContain("url: products.affiliateUrl");
+  });
+
+  it("딥링크가 준비된(link.coupang.com) 상품만 후보로 낸다", () => {
+    expect(fnBody).toContain('eq(products.deepLinkStatus, "ready")');
+    expect(fnBody).toContain('like(products.deepLinkUrl, "https://link.coupang.com/%")');
   });
 });

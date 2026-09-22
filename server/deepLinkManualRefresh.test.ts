@@ -62,7 +62,7 @@ describe("관리자 단건 딥링크 갱신", () => {
     expect(mocks.generatePendingDeepLinkForProduct).not.toHaveBeenCalled();
   });
 
-  it("공식 결과가 없어도 최근 수집기가 확인한 정확 SKU 원본 구매 경로를 유지한다", async () => {
+  it("공식 결과가 없고 딥링크도 아직 없으면 원본 쿠팡 경로로 대체하지 않고 대기(pending)로 안내한다", async () => {
     const observedAt = new Date();
     const collectorVerifiedProduct = {
       ...product,
@@ -78,8 +78,7 @@ describe("관리자 단건 딥링크 갱신", () => {
     mocks.generatePendingDeepLinkForProduct.mockResolvedValue({ processedCount: 0, detail: "제휴 링크 생성 결과 없음" });
 
     await expect(refreshDeepLinkForExactSku(41)).resolves.toMatchObject({
-      status: "collector_verified",
-      message: expect.stringContaining("원본 쿠팡 상품 경로를 유지"),
+      status: "pending",
     });
   });
 });

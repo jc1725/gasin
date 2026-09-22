@@ -2,6 +2,14 @@ import * as db from "./db";
 import { describeGmailSmtpError, sendPriceAlertEmail } from "./gmailSender";
 import { buildPriceAlertUnsubscribeUrl } from "./priceAlertUnsubscribe";
 import { sendTargetPricePushNotification } from "./webPushSender";
+import { ENV } from "./_core/env";
+
+// 2026-09-22: 쿠팡 접속은 파트너스 딥링크로만 한다. 딥링크가 아직 없으면 가신이
+// 직접 조립한 쿠팡 주소(affiliateUrl) 대신 가신 상품 페이지로 보낸다 — 거기서
+// 딥링크가 준비되면 구매 버튼이 열린다.
+function buildAlertPurchaseUrl(product: { id: number; deepLinkUrl: string | null }) {
+  return product.deepLinkUrl ?? `${ENV.appBaseUrl}/product/${product.id}`;
+}
 
 export function is24hLowestPrice(currentPrice: number, lowestPrice24h: number | null) {
   return Number.isInteger(currentPrice) && currentPrice > 0 && lowestPrice24h !== null && currentPrice <= lowestPrice24h;
@@ -66,7 +74,7 @@ export async function checkAndSendExtensionPriceAlerts(productIds: number[], now
             currentPrice,
             lowestPrice24h: lowestPrice24h ?? currentPrice,
             checkedAt: observation.observedAt,
-            affiliateUrl: product.deepLinkUrl ?? product.affiliateUrl,
+            affiliateUrl: buildAlertPurchaseUrl(product),
             unsubscribeUrl: buildPriceAlertUnsubscribeUrl(recipient),
             alertKind: "target_price",
             targetPrice: recipient.targetPrice,
@@ -113,7 +121,7 @@ export async function checkAndSendExtensionPriceAlerts(productIds: number[], now
           currentPrice,
           lowestPrice24h,
           checkedAt: observation.observedAt,
-          affiliateUrl: product.deepLinkUrl ?? product.affiliateUrl,
+          affiliateUrl: buildAlertPurchaseUrl(product),
           unsubscribeUrl: buildPriceAlertUnsubscribeUrl(recipient),
         });
         await db.completePriceAlertDelivery(alertLogId);

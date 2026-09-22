@@ -13,10 +13,11 @@ describe("상품 상세 무효 딥링크 대체 경로", () => {
     expect(source).toContain("noopener noreferrer");
   });
 
-  it("최근 수집기가 확인한 정확 SKU는 제휴 딥링크 생성 실패에도 원본 상품 경로를 유지한다", () => {
-    expect(source).toContain('import { hasCollectorVerifiedPurchasePath } from "@/lib/collectorVerifiedPurchase"');
-    expect(source).toContain("const hasCollectorVerifiedPath = hasCollectorVerifiedPurchasePath(product);");
-    expect(source).toContain("수집기가 최근 확인한 정확 옵션 상품 경로입니다. 제휴 딥링크는 생성 대기 중입니다.");
-    expect(source).toContain("href={product.affiliateUrl!}");
+  // 2026-09-22: 쿠팡 접속은 딥링크로만 한다 — 가신이 직접 조립한 원본 경로(affiliateUrl)로
+  // 구매 버튼을 열지 않고, 딥링크가 없으면 "딥링크 준비 중"을 보여준다.
+  it("딥링크가 없을 때 원본 쿠팡 경로(affiliateUrl)로 대체하지 않는다", () => {
+    expect(source).not.toContain("href={product.affiliateUrl");
+    expect(source).toContain("href={product.deepLinkUrl}");
+    expect(source).toContain("딥링크 준비 중");
   });
 });

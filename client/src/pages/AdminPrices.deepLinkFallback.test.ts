@@ -25,14 +25,13 @@ describe("관리자 무효 딥링크 대체 경로", () => {
     expect(source).toContain('setDeepLinkRefreshResults(previous => ({ ...previous, [variables.productId]: result }))');
   });
 
-  it("최근 수집기가 확인한 정확 SKU는 관리자 카드에서도 원본 상품 경로를 유지한다", () => {
-    expect(source).toContain('import { hasCollectorVerifiedPurchasePath } from "@/lib/collectorVerifiedPurchase"');
-    expect(source).toContain("const hasCollectorVerifiedPath = hasCollectorVerifiedPurchasePath(product);");
-    expect(source).toContain("product.deepLinkUrl ?? (hasCollectorVerifiedPath ? product.affiliateUrl : null)");
+  it("관리자 카드의 쿠팡 링크는 딥링크로만 열고 원본 경로(affiliateUrl)로 대체하지 않는다", () => {
+    expect(source).toContain("const link = needsPurchaseFallback ? null : product.deepLinkUrl ?? null;");
+    expect(source).not.toContain("hasCollectorVerifiedPath ? product.affiliateUrl");
+    expect(source).not.toContain("createCoupangProductUrl");
   });
 
-  it("제휴 링크 생성 실패와 수집기 확인 구매 경로 유지를 서로 구분해 표시한다", () => {
-    expect(source).toContain('"collector_verified"');
-    expect(source).toContain("수집기 확인 구매 경로 유지");
+  it("원본 경로 유지(collector_verified) 상태는 더 이상 없다", () => {
+    expect(source).not.toContain('"collector_verified"');
   });
 });
