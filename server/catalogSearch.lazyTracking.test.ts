@@ -100,16 +100,38 @@ describe("lazy-tracking search (persistNewResults: false)", () => {
     expect(mocks.upsertCoupangProduct).not.toHaveBeenCalled();
   });
 
-  it("still reuses already-tracked rows from the database as real products instead of ephemeral ones", async () => {
+  // 2026-09-22: DB 결과 3개는 limit(10)보다 적으므로, 이제 쿠팡 API도 함께 호출해
+  // 보완한다(교체 아님). 여기서는 API가 새로 찾은 게 없는 경우를 검증한다 — 그래도
+  // 이미 추적 중인 DB 행은 (ephemeral이 아니라) 그대로 실제 상품으로 남는다.
+  it("still reuses already-tracked rows from the database as real products instead of ephemeral ones (even though the Coupang API is now also queried below the 10-result threshold)", async () => {
     mocks.searchTrackedProducts.mockResolvedValue([
       { id: 42, name: "이미 추적 중인 상품 A", externalProductId: "42:1:2", currentPrice: 1000, inStock: true },
       { id: 43, name: "이미 추적 중인 상품 B", externalProductId: "43:1:2", currentPrice: 1000, inStock: true },
       { id: 44, name: "이미 추적 중인 상품 C", externalProductId: "44:1:2", currentPrice: 1000, inStock: true },
     ]);
+    mocks.searchCoupangProducts.mockResolvedValue([]);
 
     const result = await searchCatalogSafely("이미 추적 중인 상품 검색어", 10, { persistNewResults: false });
 
+    expect(mocks.searchCoupangProducts).toHaveBeenCalled();
     expect(result.source).toBe("database");
-    expect(mocks.searchCoupangProducts).not.toHaveBeenCalled();
+    expect(result.products.map(product => product.id)).toEqual([42, 43, 44]);
+  });
+
+  // "볼륨업 브이패드 검색시 결과 없음" 수정의 지연 등록(lazy) 경로 버전: DB 결과가
+  // 부족할 때 쿠팡 API가 실제로 새 결과를 주면, 기존 DB 결과를 대체하지 않고 뒤에
+  // 이어붙인 "DB + 쿠팡" 합본을 ephemeral 결과와 함께 반환한다.
+  it("merges database matches with fresh Coupang results instead of replacing them when stored coverage is below the limit", async () => {
+    mocks.searchTrackedProducts.mockResolvedValue([
+      { id: 42, name: "이미 추적 중인 상품 A", externalProductId: "42:1:2", currentPrice: 1000, inStock: true, familyKey: "family-a", unitLabel: "1개", quantity: 1 },
+    ]);
+    mocks.searchCoupangProducts.mockResolvedValue([rawProduct(201)]);
+
+    const result = await searchCatalogSafely("합본 검색어", 10, { persistNewResults: false });
+
+    expect(result.source).toBe("coupang");
+    const ids = result.products.map(product => (product as { id: number | null }).id);
+    expect(ids).toContain(42); // 기존 DB 결과가 사라지지 않고 남아있는다.
+    expect(result.products.some(product => product.id === null)).toBe(true); // 새 쿠팡 결과(ephemeral)도 포함된다.
   });
 });

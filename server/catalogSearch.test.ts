@@ -59,14 +59,19 @@ describe("searchCatalogSafely - 저장 결과 커버리지 판단", () => {
   // "저장 결과가 부족하다"고 보고 매번 외부 쿠팡 API를 호출했다. 그 결과가 검색어와
   // 느슨하게만 겹치는 다른 상품으로 완전히 대체되면서, 이미 가격까지 확인된 정확한
   // 상품이 검색에서 사라지는 회귀가 있었다. hasFullKeywordMatch로 이 회귀를 막는다.
-  it("DB 저장 결과가 1개뿐이어도 검색어 전체와 정확히 일치하면 외부 API를 호출하지 않는다", async () => {
+  // 2026-09-22: "볼륨업 브이패드 검색시 결과 없음" 수정 이후, DB 저장 결과가 limit(기본
+  // 10개) 미만이면 검색어 전체와 정확히 일치하더라도 더 이상 외부 API 호출을 건너뛰지
+  // 않는다(대신 아래에서 DB 결과와 병합한다) — 그래도 쿠팡이 무관한 결과만 주거나
+  // 아무것도 안 주면, 이미 찾은 정확한 저장 상품은 여전히 사라지지 않고 그대로 남는다.
+  it("DB 저장 결과가 1개뿐이면 검색어 전체와 정확히 일치해도 외부 API를 함께 호출하되, 쿠팡이 무관한 결과만 주면 저장된 정확 일치 상품을 그대로 유지한다", async () => {
     mocks.searchTrackedProducts.mockResolvedValue([pantheneStoredProduct]);
+    mocks.searchCoupangProducts.mockResolvedValue([]);
 
     const result = await searchCatalogSafely(pantheneKeyword);
 
+    expect(mocks.searchCoupangProducts).toHaveBeenCalled();
     expect(result.source).toBe("database");
     expect(result.products).toEqual([pantheneStoredProduct]);
-    expect(mocks.searchCoupangProducts).not.toHaveBeenCalled();
   });
 
   // 실제로 라이브 재현된 사고(1~3차 수정 배포 후에도 재현됨): DB에 완전 일치 상품이 있어도,
@@ -87,12 +92,14 @@ describe("searchCatalogSafely - 저장 결과 커버리지 판단", () => {
       isFreeShipping: false,
     };
     mocks.searchTrackedProducts.mockResolvedValue([pantheneStoredProduct, rocketBundle]);
+    mocks.searchCoupangProducts.mockResolvedValue([]);
 
     const result = await searchCatalogSafely("팬틴 극손상케어 트리트먼트");
 
-    expect(result.source).toBe("database");
+    // DB 저장 결과가 limit 미만이라 외부 API도 호출되지만, 완전 일치 상품(501)은
+    // 병합 로직 덕분에 여전히 결과에 남는다.
+    expect(mocks.searchCoupangProducts).toHaveBeenCalled();
     expect(result.products.map(product => product.id)).toContain(501);
-    expect(mocks.searchCoupangProducts).not.toHaveBeenCalled();
   });
 
   it("DB 저장 결과가 1개뿐이고 검색어와 완전히 일치하지도 않으면 외부 API로 보완한다", async () => {
@@ -196,14 +203,16 @@ describe("searchCatalogSafely - 저장 결과 커버리지 판단", () => {
     expect(mocks.invalidateCachedSearchProducts).not.toHaveBeenCalled();
   });
 
-  it("DB 저장 결과가 3개 이상이면 기존과 같이 외부 API 없이 저장 결과를 사용한다", async () => {
-    const stored = [1, 2, 3].map(index => ({
-      id: index,
-      name: `팬틴 극손상케어 트리트먼트 ${index}호`,
+  // 2026-09-22: 임계값이 고정 3개에서 요청 개수(limit, 기본·최대 10개)로 바뀌었다 —
+  // DB만으로 limit을 채우면(10개) 여전히 외부 API 없이 저장 결과를 그대로 쓴다.
+  it("DB 저장 결과가 limit(10개)을 채우면 외부 API 없이 저장 결과를 사용한다", async () => {
+    const stored = Array.from({ length: 10 }, (_, index) => ({
+      id: index + 1,
+      name: `팬틴 극손상케어 트리트먼트 ${index + 1}호`,
       currentPrice: 5_000 + index,
       inStock: true,
       categoryName: null,
-      externalProductId: `100${index}:1:1`,
+      externalProductId: `100${index + 1}:1:1`,
       variantLabel: null,
       isRocket: false,
       isFreeShipping: false,
@@ -214,6 +223,51 @@ describe("searchCatalogSafely - 저장 결과 커버리지 판단", () => {
 
     expect(result.source).toBe("database");
     expect(mocks.searchCoupangProducts).not.toHaveBeenCalled();
+  });
+
+  // "볼륨업 브이패드 검색시 결과 없음" 수정의 핵심 시나리오: DB에 3개뿐(limit 10 미만)이면
+  // 이제 즉시 쿠팡 API로도 보완하고, 결과는 DB 결과를 대체하지 않고 그 뒤에 이어붙인
+  // "DB + 쿠팡" 합본이어야 한다.
+  it("DB 저장 결과가 3개뿐이면(limit 미만) 즉시 쿠팡 API로 보완해 DB+쿠팡 합본을 반환한다", async () => {
+    const stored = Array.from({ length: 3 }, (_, index) => ({
+      id: index + 1,
+      name: `팬틴 극손상케어 트리트먼트 ${index + 1}호`,
+      currentPrice: 5_000 + index,
+      inStock: true,
+      categoryName: null,
+      externalProductId: `100${index + 1}:1:1`,
+      variantLabel: null,
+      isRocket: false,
+      isFreeShipping: false,
+    }));
+    mocks.searchTrackedProducts.mockResolvedValue(stored);
+    mocks.searchCoupangProducts.mockResolvedValue([
+      {
+        productId: 9998,
+        productName: "팬틴 극손상케어 트리트먼트 새로 나온 옵션",
+        productPrice: 6_200,
+        productImage: "https://example.com/new.jpg",
+        productUrl: "https://link.coupang.com/a/new-option",
+        categoryName: "헤어케어",
+        isRocket: false,
+        isFreeShipping: true,
+      },
+    ]);
+    mocks.upsertCoupangProducts.mockResolvedValue([
+      { id: 9998, name: "팬틴 극손상케어 트리트먼트 새로 나온 옵션", currentPrice: 6_200, affiliateUrl: "https://link.coupang.com/a/new-option", externalProductId: "9998:1:1", inStock: true, categoryName: "헤어케어", variantLabel: null, isRocket: false, isFreeShipping: true },
+    ]);
+    mocks.saveDeepLinkForProduct.mockResolvedValue(undefined);
+    mocks.cacheSearchProducts.mockResolvedValue(undefined);
+
+    const result = await searchCatalogSafely("팬틴 극손상케어 트리트먼트");
+
+    expect(mocks.searchCoupangProducts).toHaveBeenCalled();
+    expect(result.source).toBe("coupang");
+    const ids = result.products.map(product => product.id);
+    // 기존 DB 저장 결과 3개가 그대로 남아있고(교체되지 않고),
+    expect(ids).toEqual(expect.arrayContaining([1, 2, 3]));
+    // 새로 확인된 쿠팡 결과도 함께 포함된다.
+    expect(ids).toContain(9998);
   });
 });
 

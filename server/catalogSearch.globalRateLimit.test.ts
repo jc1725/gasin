@@ -54,9 +54,12 @@ describe("searchCatalogSafely global rate protection", () => {
       { id: 2430122, name: "매일우유 무지방 0%, 200ml, 120개", externalProductId: "33414098", variantLabel: "200ml × 120개", currentPrice: 62510 },
       { id: 3030001, name: "매일우유 무지방 0%, 200ml, 120개", externalProductId: "33414098:8483121623:94983884904", variantLabel: "200ml × 120개", currentPrice: 62510 },
     ]);
+    // 2026-09-22: 중복 제거 후 저장 결과가 1개뿐(limit 10 미만)이라 이제 쿠팡 API도
+    // 함께 호출된다 — API가 새로 찾은 게 없으면 정확 SKU 하나만 그대로 남는다.
+    mocks.searchCoupangProducts.mockResolvedValue([]);
 
     await expect(searchCatalogSafely("매일우유 무지방")).resolves.toMatchObject({ source: "database", products: [{ id: 3030001 }] });
-    expect(mocks.searchCoupangProducts).not.toHaveBeenCalled();
+    expect(mocks.searchCoupangProducts).toHaveBeenCalled();
   });
 
   it("does not let an empty saved cache block one allowed official search", async () => {

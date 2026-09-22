@@ -145,8 +145,6 @@ async function reuseAffiliateUrlsFromSearch(stored: Awaited<ReturnType<typeof db
   return ready.length;
 }
 
-const MIN_STORED_RESULTS_BEFORE_EXTERNAL_SEARCH = 3;
-
 function removeExcludedTrackingProducts<T extends { categoryName?: string | null; name?: string; productName?: string }>(products: T[]) {
   return products.filter(product => !isExcludedTrackingCategory({ categoryName: product.categoryName, name: product.name, productName: product.productName }));
 }
@@ -203,18 +201,20 @@ export async function searchCatalogSafely(keyword: string, limit = 10, options: 
 
     const databaseMatches = await db.searchTrackedProducts(keyword, limit);
     const rankedDatabaseMatches = removeExcludedTrackingProducts(filterStableDeliveryResults(rankSearchResults(keyword, databaseMatches), keyword));
-    // 가신 수집기로 등록된 상품처럼 DB에 1~2개만 저장돼 있어도, 검색어 전체가
-    // 상품명에 그대로 들어맞는 결과를 이미 찾았다면 "저장 결과가 부족하다"고
-    // 보지 않는다. 그렇지 않으면 매번 외부 쿠팡 API를 호출해, API가 반환하는
-    // 느슨하게만 관련된 결과가 이미 찾은 정확한 저장 상품을 완전히 대체해 버린다.
-    const hasSufficientStoredCoverage = rankedDatabaseMatches.length >= Math.min(limit, MIN_STORED_RESULTS_BEFORE_EXTERNAL_SEARCH)
-      || (databaseMatches.length > rankedDatabaseMatches.length && rankedDatabaseMatches.length > 0)
-      || hasFullKeywordMatch(keyword, rankedDatabaseMatches);
+    // 2026-09-22: "볼륨업 브이패드 검색시 결과 없음" — 예전엔 DB에 3개(또는 검색어 전체와
+    // 일치하는 결과 1개)만 있어도 "저장 결과가 충분하다"고 보고 외부 쿠팡 API를 아예
+    // 호출하지 않았다. 이제는 요청한 개수(limit, 최대 10개)를 채우지 못하면 무조건
+    // 쿠팡 API도 함께 호출해서 DB 결과에 이어붙인다(교체가 아니라 보강) — 정확한
+    // 저장 상품이 API 결과로 밀려나 사라지던 예전 회귀는, 아래 병합 로직이 DB 결과를
+    // 항상 먼저 배치해(동률 시 먼저 나온 항목이 살아남는 selectCheapestPerFamilyByItemPrice
+    // 규칙) 그대로 막는다.
+    const hasSufficientStoredCoverage = rankedDatabaseMatches.length >= limit;
     if (hasSufficientStoredCoverage && hasUsableStoredPrice(rankedDatabaseMatches)) {
       return { products: selectCheapestPerFamilyByItemPrice(rankedDatabaseMatches), source: "database", message: "가격 추적 목록에서 찾은 결과입니다." };
     }
-    // 저장 결과가 적으면 한두 개만으로 검색을 끝내지 않고 공식 API로 보완한다.
-    // API가 결과를 주지 않을 때는 이미 저장된 관련 상품을 fallback으로 유지한다.
+    // 저장 결과가 요청 개수(limit)에 못 미치면 공식 API로 즉시 보완한다. API가 결과를
+    // 주지 않을 때는 이미 저장된 관련 상품을 fallback으로 유지하고, API가 결과를 주면
+    // 아래에서 이 DB 결과 뒤에 이어붙여(교체 아님) "DB + 쿠팡" 합본으로 보여준다.
     databaseFallback = rankedDatabaseMatches.length > 0 && hasUsableStoredPrice(rankedDatabaseMatches)
       ? selectCheapestPerFamilyByItemPrice(rankedDatabaseMatches)
       : [];
@@ -275,16 +275,27 @@ export async function searchCatalogSafely(keyword: string, limit = 10, options: 
           ephemeral.unshift(exactTrackedMatch);
         }
       }
-      // 같은 상품이 용량은 같고 수량(묶음 개수)만 다른 카드로 여러 개 나오는 걸
-      // 막기 위해, 실제로 저장하기 전인 이 단계에서도 상품군당 하나만 남긴다.
-      const dedupedEphemeral = selectCheapestPerFamilyByItemPrice(ephemeral);
-      if (dedupedEphemeral.length === 0 && callType === "product-search") await db.recordMissingSearch(keyword);
+      // 2026-09-22: DB 결과가 부족해(databaseFallback) 여기까지 왔다면, 쿠팡 API가 새로
+      // 찾은 결과로 "교체"하지 않고 DB 결과 뒤에 이어붙여 "DB + 쿠팡" 합본으로 보여준다.
+      // 같은 상품(externalProductId 동일)이 API 결과에도 있으면 실제 id가 있는 DB 항목을
+      // 우선하고 임시(ephemeral) 중복은 제거한다.
+      const alreadyInDatabase = new Set(databaseFallback.map(product => product.externalProductId));
+      const newFromApi = ephemeral.filter(item => !alreadyInDatabase.has(item.externalProductId));
+      // 같은 상품이 용량은 같고 수량(묶음 개수)만 다른 카드로 여러 개 나오는 걸 막기
+      // 위해, 실제로 저장하기 전인 이 단계에서도 상품군당 하나만 남긴다. DB 결과를
+      // 먼저 두므로 동률(같은 상품군·같은 단위)이면 실제 id가 있는 DB 항목이 남는다.
+      const dedupedCombined = selectCheapestPerFamilyByItemPrice([...databaseFallback, ...newFromApi]).slice(0, limit);
+      if (dedupedCombined.length === 0 && callType === "product-search") await db.recordMissingSearch(keyword);
       return {
-        products: dedupedEphemeral,
+        products: dedupedCombined,
         source: "coupang",
-        message: ephemeral.length > 0
-          ? (options.forceExternal ? "쿠팡 공식 API로 최신 검색 결과를 새로 확인했습니다." : "쿠팡 최신 검색 결과 중 검색어와 일치하는 상품을 표시합니다.")
-          : "쿠팡 최신 검색 결과에 검색어와 일치하는 상품이 없습니다.",
+        message: dedupedCombined.length === 0
+          ? "쿠팡 최신 검색 결과에 검색어와 일치하는 상품이 없습니다."
+          : options.forceExternal
+            ? "쿠팡 공식 API로 최신 검색 결과를 새로 확인했습니다."
+            : databaseFallback.length > 0
+              ? "가격 추적 목록과 쿠팡 최신 검색 결과를 함께 표시합니다."
+              : "쿠팡 최신 검색 결과 중 검색어와 일치하는 상품을 표시합니다.",
       };
     }
 
@@ -296,18 +307,29 @@ export async function searchCatalogSafely(keyword: string, limit = 10, options: 
         ranked = [exactTrackedMatch, ...ranked];
       }
     }
+    // 2026-09-22: DB 결과가 부족해(databaseFallback) 여기까지 왔다면, 방금 확인한 쿠팡
+    // API 결과로 "교체"하지 않고 DB 결과를 앞에 붙여 함께 보여준다 — 그렇지 않으면
+    // 이미 찾은 정확한 저장 상품이 API의 느슨한 결과로 조용히 사라질 수 있다
+    // (hasSufficientStoredCoverage가 이제 limit 미만이면 항상 API를 부르므로 더 흔해짐).
+    const alreadyRanked = new Set(ranked.map(product => product.externalProductId));
+    const additionalFromDatabase = databaseFallback.filter(product => !alreadyRanked.has(product.externalProductId));
+    ranked = [...additionalFromDatabase, ...ranked];
     // 같은 상품이 용량은 같고 수량(묶음 개수)만 다른 카드로 여러 개 나오는 걸
     // 막기 위해, 상품군당 "수량 1개당 가격"이 가장 저렴한 하나만 남긴다.
-    ranked = selectCheapestPerFamilyByItemPrice(ranked);
+    ranked = selectCheapestPerFamilyByItemPrice(ranked).slice(0, limit);
     await reuseAffiliateUrlsFromSearch(ranked);
     await db.cacheSearchProducts(keyword, ranked.map(product => product.id));
     if (ranked.length === 0 && callType === "product-search") await db.recordMissingSearch(keyword);
     return {
       products: ranked,
       source: "coupang",
-      message: ranked.length > 0
-        ? (options.forceExternal ? "쿠팡 공식 API로 최신 검색 결과를 새로 확인했습니다." : "쿠팡 최신 검색 결과 중 검색어와 일치하는 상품을 표시합니다.")
-        : "쿠팡 최신 검색 결과에 검색어와 일치하는 상품이 없습니다.",
+      message: ranked.length === 0
+        ? "쿠팡 최신 검색 결과에 검색어와 일치하는 상품이 없습니다."
+        : options.forceExternal
+          ? "쿠팡 공식 API로 최신 검색 결과를 새로 확인했습니다."
+          : additionalFromDatabase.length > 0
+            ? "가격 추적 목록과 쿠팡 최신 검색 결과를 함께 표시합니다."
+            : "쿠팡 최신 검색 결과 중 검색어와 일치하는 상품을 표시합니다.",
     };
   } catch (error) {
     if (error instanceof CoupangRateLimitError) {
