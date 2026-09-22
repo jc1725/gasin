@@ -61,6 +61,10 @@ export const products = mysqlTable(
     isRocket: boolean("isRocket").default(false).notNull(),
     isFreeShipping: boolean("isFreeShipping").default(false).notNull(),
     isActive: boolean("isActive").default(true).notNull(),
+    // 2026-09-22: "이관되면 기존내용은 숨김 처리하고, 90일 지나면 삭제할것" — isActive가
+    // false로 바뀌는 시점(SKU 재발급 이관, 관리자 수동 병합, 골드박스 일일 갱신 탈락)을
+    // 기록해서, 그 시점 기준 90일 뒤 자동 삭제 대상을 정확히 판정할 수 있게 한다.
+    deactivatedAt: timestamp("deactivatedAt"),
     firstSeenAt: timestamp("firstSeenAt").defaultNow().notNull(),
     lastSeenAt: timestamp("lastSeenAt").defaultNow().notNull(),
   },
@@ -72,6 +76,7 @@ export const products = mysqlTable(
     index("products_trackingPriority_lastSeenAt_idx").on(table.trackingPriority, table.lastSeenAt),
     index("products_deepLinkStatus_lastSeenAt_idx").on(table.deepLinkStatus, table.lastSeenAt),
     index("products_trackingPriority_lastViewedAt_idx").on(table.trackingPriority, table.lastViewedAt),
+    index("products_isActive_deactivatedAt_idx").on(table.isActive, table.deactivatedAt),
   ]
 );
 

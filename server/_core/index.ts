@@ -11,7 +11,7 @@ import { serveStatic, setupVite } from "./vite";
 import { registerGoogleOAuthRoutes } from "../googleAuth";
 import { registerKakaoOAuthRoutes } from "../kakaoAuth";
 import { registerPriceAlertRoutes } from "../priceAlertRoutes";
-import { registerScheduledJobRoutes, refreshDeferredSearchPrices, runGoldBoxDailySchedule } from "../scheduledJobs";
+import { registerScheduledJobRoutes, refreshDeferredSearchPrices, runGoldBoxDailySchedule, runRetentionDailySchedule } from "../scheduledJobs";
 import { registerCollectionRoutes } from "../collectionRoutes";
 import { registerWebPushConfigRoutes } from "../webPushConfigRoutes";
 import { registerExternalPriceRefreshRoute, registerExternalFavoritesRefreshRoute } from "../externalPriceRefresh";
@@ -68,6 +68,10 @@ async function startServer() {
     const [priceResult] = await Promise.all([
       refreshDeferredSearchPrices(),
       runGoldBoxDailySchedule(),
+      // 2026-09-22: retention(90일 지난 가격 이력 + 이관·병합·골드박스 탈락으로
+      // 비활성화된 지 90일 넘은 상품 삭제)도 같은 이유로 이 heartbeat에 게이팅해
+      // 얹는다 — runGoldBoxDailySchedule과 마찬가지로 절대 throw하지 않는다.
+      runRetentionDailySchedule(),
     ]);
     return priceResult;
   });

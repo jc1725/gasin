@@ -404,9 +404,45 @@ export async function removeExpiredPriceHistory() {
     const expiry = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
     const officialDeleted = await db.prunePriceHistory(expiry);
     const collectedDeleted = await db.pruneCollectedPriceHistory(expiry);
+    // 2026-09-22: "이관되면 기존내용은 숨김 처리하고, 90일 지나면 삭제할것" — SKU 이관·
+    // 관리자 병합·골드박스 탈락으로 90일 넘게 비활성 상태인 상품도 이 90일 보존 정책에
+    // 같이 태운다(deleteExpiredInactiveProducts, server/db.ts).
+    const { deletedCount: supersededDeleted } = await db.deleteExpiredInactiveProducts(expiry);
     await db.markScheduleCompleted("retention");
-    return { processedCount: officialDeleted + collectedDeleted, detail: `90일 이전 가격 이력 ${officialDeleted}건과 외부 수집 이력 ${collectedDeleted}건을 정리했습니다.` } satisfies JobOutcome;
+    return {
+      processedCount: officialDeleted + collectedDeleted + supersededDeleted,
+      detail: `90일 이전 가격 이력 ${officialDeleted}건과 외부 수집 이력 ${collectedDeleted}건, 이관·병합·골드박스 탈락으로 90일 넘게 비활성 상태인 상품 ${supersededDeleted}개를 정리했습니다.`,
+    } satisfies JobOutcome;
   });
+}
+
+// ============================================================
+// 90일 지난 비활성 상품 + 오래된 가격 이력 정리(retention) — 매일 1회 게이팅 실행
+// ------------------------------------------------------------
+// 2026-09-22: /api/scheduled/retention이 cron-job.org 등 외부 트리거에 실제로 연결돼
+// 있는지 Railway HTTP 로그로 확인되지 않았다(연결이 안 돼 있으면 이 정리가 영원히
+// 실행되지 않는다). 골드박스 일일 갱신과 같은 이유로, 이미 3분마다 안정적으로 호출되는
+// 것이 확인된 /api/external/price-refresh heartbeat에 얹어서 하루 한 번만 게이팅
+// 실행한다 — 새 외부 크론 설정 없이도 확실히 돈다.
+// ============================================================
+const RETENTION_RUN_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24시간
+const RETENTION_RETRY_AFTER_FAILURE_MS = 3 * 60 * 1000; // 3분
+
+export async function runRetentionDailySchedule(now: Date = new Date()) {
+  const lastRun = await db.getLatestSyncRun("retention");
+  if (lastRun && lastRun.status === "success" && now.getTime() - lastRun.startedAt.getTime() < RETENTION_RUN_INTERVAL_MS) {
+    return { ran: false, reason: "24시간 이내 이미 성공적으로 정리함" } as const;
+  }
+  if (lastRun && lastRun.status === "failed" && now.getTime() - lastRun.startedAt.getTime() < RETENTION_RETRY_AFTER_FAILURE_MS) {
+    return { ran: false, reason: "직전 실패 후 3분 재시도 대기 중" } as const;
+  }
+  try {
+    const result = await removeExpiredPriceHistory();
+    return { ran: true, result } as const;
+  } catch (error) {
+    logError("retention_daily_schedule_failed", "external_cron", error, { endpoint: "retention-daily" });
+    return { ran: true, error: error instanceof Error ? error.message : "Unknown error" } as const;
+  }
 }
 
 async function authorizeJob(req: Request, res: Response, jobKey: JobKey) {

@@ -380,6 +380,7 @@ async function supersedeSearchSkusWithCollectorObservation(tx: any, collectorPro
     ]);
     await tx.update(products).set({
       isActive: false,
+      deactivatedAt: occurredAt,
       lastRefreshReason: `가신 수집기 정확 SKU ${collectorSku} 관측 우선 적용 · 상품 #${collectorProductId}로 사용자 연결 이관`,
     }).where(eq(products.id, source.id));
   }
@@ -709,6 +710,7 @@ export async function recordCollectedPriceItems(items: CollectedPriceInput[]) {
         // 실패 링크를 재생성 대기로 되돌린다. 관측 URL 자체를 제휴 딥링크로 재사용하지 않는다.
         ...(current.deepLinkStatus === "failed" ? { deepLinkStatus: "pending" as const, deepLinkUrl: null, deepLinkFailureReason: null, deepLinkUpdatedAt: new Date() } : {}),
         isActive: true,
+        deactivatedAt: null,
         ...(item.inStock && effectivePrice > 0 ? { wowMemberPrice: effectivePrice, wowMemberPriceObservedAt: item.collectedAt } : {}),
       };
       if (!item.inStock || effectivePrice <= 0) {
@@ -1565,6 +1567,7 @@ export async function upsertCoupangProduct(product: CoupangProduct, source: Prod
       isRocket: values.isRocket,
       isFreeShipping: values.isFreeShipping,
       isActive: true,
+      deactivatedAt: null,
       refreshState: values.refreshState,
       lastRefreshReason: hasWowMemberPrice(existing) ? "수집기 최신 와우 회원가 우선 유지" : values.lastRefreshReason,
       lastRefreshAttemptAt: now,
@@ -1619,7 +1622,7 @@ export async function deactivateStaleProductsForSource(source: ProductSource, fr
   const freshSet = freshExternalProductIds.length > 0 ? freshExternalProductIds : ["__none__"];
   const result = await db
     .update(products)
-    .set({ isActive: false })
+    .set({ isActive: false, deactivatedAt: new Date() })
     .where(and(
       eq(products.source, source),
       eq(products.isActive, true),
@@ -2066,6 +2069,7 @@ export async function mergeDuplicateProductsForAdmin(sourceProductId: number, ta
     await tx.update(products).set({
       lowestPrice: Number(low ?? target.currentPrice),
       isActive: false,
+      deactivatedAt: new Date(),
       lastRefreshReason: `관리자 수동 병합 완료 · 정확 옵션 SKU 상품 #${target.id}로 이관`,
     }).where(eq(products.id, source.id));
     return {
@@ -2267,6 +2271,33 @@ export async function deleteTrackedProductsForAdmin(productIds: number[]) {
     await tx.delete(manualLinkTracks).where(inArray(manualLinkTracks.productId, existingIds));
     await tx.delete(products).where(inArray(products.id, existingIds));
     return { deletedCount: existingIds.length, skippedCount: uniqueIds.length - existingIds.length };
+  });
+}
+
+/**
+ * 2026-09-22: "기존 수집된 SKU 이걸 삭제하지않고 자동으로 숨겨줘 => 이관되면 기존내용은
+ * 숨김 처리하고, 90일 지나면 삭제할것" — SKU 재발급 이관(supersedeSearchSkusWithCollectorObservation),
+ * 관리자 수동 병합(mergeDuplicateProductsForAdmin), 골드박스 일일 갱신 탈락
+ * (deactivateStaleProductsForSource)으로 isActive: false가 될 때마다 deactivatedAt을
+ * 함께 기록해두고, 그 시점부터 expiryBefore(호출부에서 90일 전 시각을 넘김)가 지난
+ * 비활성 상품을 완전 삭제한다. deactivatedAt이 없는(이 기능 배포 전부터 비활성이었던)
+ * 레거시 행은 대상에서 제외한다 — 배포 당일 대량 삭제를 막기 위함이며, 그런 행은
+ * 자연스럽게 다시 활성화(수집기 재관측)되거나 관리자가 수동으로 정리하면 된다.
+ */
+export async function deleteExpiredInactiveProducts(expiryBefore: Date) {
+  const db = await getDb();
+  if (!db) return { deletedCount: 0 };
+  return db.transaction(async tx => {
+    const targets = await tx.select({ id: products.id }).from(products).where(and(
+      eq(products.isActive, false),
+      isNotNull(products.deactivatedAt),
+      lt(products.deactivatedAt, expiryBefore),
+    ));
+    if (targets.length === 0) return { deletedCount: 0 };
+    const ids = targets.map(row => row.id);
+    await tx.delete(manualLinkTracks).where(inArray(manualLinkTracks.productId, ids));
+    await tx.delete(products).where(inArray(products.id, ids));
+    return { deletedCount: ids.length };
   });
 }
 
