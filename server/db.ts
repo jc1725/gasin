@@ -1607,7 +1607,7 @@ export async function upsertCoupangProducts(items: CoupangProduct[], source: Pro
 }
 
 /**
- * 2026-09-18: 골드박스는 하루 1번(오후 8시) 전체 목록을 통째로 갱신하는데, 이번에
+ * 2026-09-22: 골드박스는 하루 1번(오전 8시) 전체 목록을 통째로 갱신하는데, 이번에
  * 받은 목록에 더 이상 없는(즉 골드박스에서 빠진) 예전 상품이 isActive: true로 계속
  * 남아있으면 사용자 화면(catalog.list source=goldbox, isActive만 필터링)에 어제
  * 목록과 오늘 목록이 섞여 보인다. 이번 갱신에서 실제로 저장된(=골드박스 응답에 있고

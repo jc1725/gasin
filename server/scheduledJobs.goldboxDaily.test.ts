@@ -69,7 +69,7 @@ describe("골드박스 전체 갱신 시 오래된 상품 내리기", () => {
   });
 });
 
-describe("골드박스 매일 오후 8시(KST) 자동 갱신 스케줄", () => {
+describe("골드박스 매일 오전 8시(KST) 자동 갱신 스케줄", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.getSearchApiQuotaStatus.mockResolvedValue({ allowed: true });
@@ -81,45 +81,45 @@ describe("골드박스 매일 오후 8시(KST) 자동 갱신 스케줄", () => {
     mocks.upsertCoupangProducts.mockResolvedValue([]);
   });
 
-  it("오후 8시 이전이면 실행하지 않는다", async () => {
+  it("오전 8시 이전이면 실행하지 않는다", async () => {
     mocks.getLatestSyncRun.mockResolvedValue(undefined);
-    const result = await runGoldBoxDailySchedule(kst(2026, 8, 18, 19, 59));
+    const result = await runGoldBoxDailySchedule(kst(2026, 8, 18, 7, 59));
     expect(result).toMatchObject({ ran: false });
     expect(mocks.getGoldBoxProducts).not.toHaveBeenCalled();
   });
 
-  it("오후 8시 이후 오늘 아직 성공 기록이 없으면 실행한다", async () => {
+  it("오전 8시 이후 오늘 아직 성공 기록이 없으면 실행한다", async () => {
     mocks.getLatestSyncRun.mockResolvedValue(undefined);
-    const result = await runGoldBoxDailySchedule(kst(2026, 8, 18, 20, 0));
+    const result = await runGoldBoxDailySchedule(kst(2026, 8, 18, 8, 0));
     expect(result).toMatchObject({ ran: true });
     expect(mocks.getGoldBoxProducts).toHaveBeenCalledTimes(1);
     expect(mocks.markScheduleCompleted).toHaveBeenCalledWith("goldbox");
   });
 
-  it("오늘 오후 8시 이후 이미 성공했으면 다시 실행하지 않는다", async () => {
-    mocks.getLatestSyncRun.mockResolvedValue({ status: "success", startedAt: kst(2026, 8, 18, 20, 5) });
-    const result = await runGoldBoxDailySchedule(kst(2026, 8, 18, 21, 0));
+  it("오늘 오전 8시 이후 이미 성공했으면 다시 실행하지 않는다", async () => {
+    mocks.getLatestSyncRun.mockResolvedValue({ status: "success", startedAt: kst(2026, 8, 18, 8, 5) });
+    const result = await runGoldBoxDailySchedule(kst(2026, 8, 18, 9, 0));
     expect(result).toMatchObject({ ran: false });
     expect(mocks.getGoldBoxProducts).not.toHaveBeenCalled();
   });
 
   it("어제 8시 이후 성공 기록만 있으면(오늘 것 아님) 오늘 다시 실행한다", async () => {
-    mocks.getLatestSyncRun.mockResolvedValue({ status: "success", startedAt: kst(2026, 8, 17, 20, 5) });
-    const result = await runGoldBoxDailySchedule(kst(2026, 8, 18, 20, 10));
+    mocks.getLatestSyncRun.mockResolvedValue({ status: "success", startedAt: kst(2026, 8, 17, 8, 5) });
+    const result = await runGoldBoxDailySchedule(kst(2026, 8, 18, 8, 10));
     expect(result).toMatchObject({ ran: true });
     expect(mocks.getGoldBoxProducts).toHaveBeenCalledTimes(1);
   });
 
   it("직전 시도가 3분 이내에 실패했으면 재시도하지 않고 기다린다", async () => {
-    mocks.getLatestSyncRun.mockResolvedValue({ status: "failed", startedAt: kst(2026, 8, 18, 20, 10) });
-    const result = await runGoldBoxDailySchedule(kst(2026, 8, 18, 20, 12));
+    mocks.getLatestSyncRun.mockResolvedValue({ status: "failed", startedAt: kst(2026, 8, 18, 8, 10) });
+    const result = await runGoldBoxDailySchedule(kst(2026, 8, 18, 8, 12));
     expect(result).toMatchObject({ ran: false });
     expect(mocks.getGoldBoxProducts).not.toHaveBeenCalled();
   });
 
   it("직전 실패로부터 3분이 지나면 재시도한다", async () => {
-    mocks.getLatestSyncRun.mockResolvedValue({ status: "failed", startedAt: kst(2026, 8, 18, 20, 10) });
-    const result = await runGoldBoxDailySchedule(kst(2026, 8, 18, 20, 14));
+    mocks.getLatestSyncRun.mockResolvedValue({ status: "failed", startedAt: kst(2026, 8, 18, 8, 10) });
+    const result = await runGoldBoxDailySchedule(kst(2026, 8, 18, 8, 14));
     expect(result).toMatchObject({ ran: true });
     expect(mocks.getGoldBoxProducts).toHaveBeenCalledTimes(1);
   });
@@ -127,7 +127,7 @@ describe("골드박스 매일 오후 8시(KST) 자동 갱신 스케줄", () => {
   it("실행 중 에러가 나도 throw하지 않는다(가격 갱신 신호에 영향 안 줌)", async () => {
     mocks.getLatestSyncRun.mockResolvedValue(undefined);
     mocks.getGoldBoxProducts.mockRejectedValue(new Error("Coupang API 오류"));
-    const result = await runGoldBoxDailySchedule(kst(2026, 8, 18, 20, 0));
+    const result = await runGoldBoxDailySchedule(kst(2026, 8, 18, 8, 0));
     expect(result).toMatchObject({ ran: true, error: "Coupang API 오류" });
   });
 });

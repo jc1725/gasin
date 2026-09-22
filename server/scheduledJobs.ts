@@ -255,7 +255,7 @@ export async function collectGoldBoxProducts() {
 }
 
 // ============================================================
-// 골드박스 매일 오후 8시(KST) 자동 갱신
+// 골드박스 매일 오전 8시(KST) 자동 갱신
 // ------------------------------------------------------------
 // 2026-09-18: cron-job.org가 /api/external/price-refresh를 약 3분 간격으로 안정적으로
 // 호출하고 있는 것을 확인해(Railway 로그로 검증), 별도의 새 외부 크론을 추가로 설정할
@@ -263,12 +263,12 @@ export async function collectGoldBoxProducts() {
 // 결과를 보고 스스로 결정하므로, 3분마다 불려도 대부분은 조건 미충족으로 즉시
 // 반환된다(사실상 no-op).
 //
-// 정책: 매일 KST 20:00 이후 처음 호출될 때 실행. 성공하면 markScheduleCompleted로
-// 기록되고(collectGoldBoxProducts 내부), 그날은 20:00 이후 syncRuns에 success 기록이
+// 정책: 매일 KST 08:00 이후 처음 호출될 때 실행. 성공하면 markScheduleCompleted로
+// 기록되고(collectGoldBoxProducts 내부), 그날은 08:00 이후 syncRuns에 success 기록이
 // 있으므로 다시 실행하지 않는다. 실패하면 다음 호출(최대 3분 뒤) 때 재시도한다.
 // ============================================================
 const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
-const GOLDBOX_DAILY_RUN_HOUR_KST = 20; // 오후 8시
+const GOLDBOX_DAILY_RUN_HOUR_KST = 8; // 오전 8시
 const GOLDBOX_RETRY_AFTER_FAILURE_MS = 3 * 60 * 1000; // 3분
 
 function kstWallClock(date: Date) {
@@ -291,7 +291,7 @@ function todayGoldBoxThresholdUtc(now: Date) {
 export async function runGoldBoxDailySchedule(now: Date = new Date()) {
   const { hour } = kstWallClock(now);
   if (hour < GOLDBOX_DAILY_RUN_HOUR_KST) {
-    return { ran: false, reason: "오후 8시 전이라 대기" } as const;
+    return { ran: false, reason: "오전 8시 전이라 대기" } as const;
   }
 
   const threshold = todayGoldBoxThresholdUtc(now);
