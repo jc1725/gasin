@@ -25,10 +25,16 @@ describe("관리자 무효 딥링크 대체 경로", () => {
     expect(source).toContain('setDeepLinkRefreshResults(previous => ({ ...previous, [variables.productId]: result }))');
   });
 
-  it("관리자 카드의 쿠팡 링크는 딥링크로만 열고 원본 경로(affiliateUrl)로 대체하지 않는다", () => {
+  it("고객 구매 링크는 딥링크만 쓰고 저장된 원본 경로(affiliateUrl)로 대체하지 않는다", () => {
     expect(source).toContain("const link = needsPurchaseFallback ? null : product.deepLinkUrl ?? null;");
     expect(source).not.toContain("hasCollectorVerifiedPath ? product.affiliateUrl");
-    expect(source).not.toContain("createCoupangProductUrl");
+  });
+
+  // 2026-09-25: 딥링크가 없는 상품은 관리자가 직접 들어가 옵션을 확인해야 살아난다.
+  it("관리자 확인용 SKU 직접 주소 버튼은 딥링크와 별개로 항상 제공한다", () => {
+    expect(source).toContain("const coupangDirectUrl = coupangProductId ? createCoupangProductUrl(coupangProductId, storedItemId, storedVendorItemId) : null;");
+    expect(source).toContain("SKU 직접 열기");
+    expect(source).toContain("딥링크 대기");
   });
 
   it("원본 경로 유지(collector_verified) 상태는 더 이상 없다", () => {
