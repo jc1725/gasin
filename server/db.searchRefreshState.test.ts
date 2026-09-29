@@ -25,6 +25,8 @@ describe("deferSearchProductRefresh", () => {
 
   afterEach(() => delete process.env.DATABASE_URL);
 
+  // db.ts import가 느린 환경에서 기본 5초 타임아웃에 걸리면, 뒤늦게 끝난 update가
+  // 다음 테스트의 payloads에 섞여 들어가 연쇄 실패한다(2026-09-29 실제 발생).
   it("stores a deferred state and transparent reason for search-origin products", async () => {
     const { deferSearchProductRefresh } = await import("./db");
 
@@ -33,7 +35,7 @@ describe("deferSearchProductRefresh", () => {
     expect(mocks.payloads[0]).toMatchObject({ refreshState: "deferred" });
     expect(mocks.payloads[0]).toHaveProperty("lastRefreshReason");
     expect(mocks.payloads[0]).toHaveProperty("nextRefreshAt");
-  });
+  }, 30_000);
 
   // 2026-09-29: 딥링크를 지우면 자동 순회(딥링크 전용 방문)가 그 상품을 영원히 방문하지 못해
   // 복구 경로가 사라진다. 미일치여도 딥링크는 유지하거나 pending으로 남겨 생성되게 한다.

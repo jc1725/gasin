@@ -122,12 +122,14 @@ describe("lazy-tracking search (persistNewResults: false)", () => {
   // 부족할 때 쿠팡 API가 실제로 새 결과를 주면, 기존 DB 결과를 대체하지 않고 뒤에
   // 이어붙인 "DB + 쿠팡" 합본을 ephemeral 결과와 함께 반환한다.
   it("merges database matches with fresh Coupang results instead of replacing them when stored coverage is below the limit", async () => {
+    // 검색어·상품명이 서로 맞아야 관련도 필터(rankSearchResults)를 통과한다.
+    // familyKey를 다르게 둬서 같은 상품군 중복 제거에 묶이지 않게 한다.
     mocks.searchTrackedProducts.mockResolvedValue([
-      { id: 42, name: "이미 추적 중인 상품 A", externalProductId: "42:1:2", currentPrice: 1000, inStock: true, familyKey: "family-a", unitLabel: "1개", quantity: 1 },
+      { id: 42, name: "퀸센스 로제 냄비 1개", externalProductId: "42:1:2", currentPrice: 1000, inStock: true, familyKey: "family-a", unitLabel: "1개", quantity: 1 },
     ]);
     mocks.searchCoupangProducts.mockResolvedValue([rawProduct(201)]);
 
-    const result = await searchCatalogSafely("합본 검색어", 10, { persistNewResults: false });
+    const result = await searchCatalogSafely("퀸센스 로제 냄비", 10, { persistNewResults: false });
 
     expect(result.source).toBe("coupang");
     const ids = result.products.map(product => (product as { id: number | null }).id);
