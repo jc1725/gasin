@@ -23,7 +23,10 @@ describe("admin current price trend covers the whole catalog", () => {
   });
 
   it("marks inactive/expired rows in the admin list and blocks 품절 on them", () => {
-    expect(page).toContain("비활성·만료 감지 상품까지 포함한 전체 상품");
+    // 2026-09-22: 비활성 상품은 기본으로 숨기고 "숨김 상품" 버튼으로 보게 바뀌면서
+    // 목록 설명 문구도 함께 바뀌었다(조회 자체는 여전히 전체 상품 대상).
+    expect(page).toContain("SKU 이관·관리자 병합·골드박스 탈락으로 비활성화된 상품은 기본적으로 숨겨지며");
+    expect(page).toContain("showHiddenProducts");
     expect(page).toContain("가격 갱신이 오래된 상품부터 표시");
     expect(page).toContain("비활성(만료 감지)");
     expect(page).toContain("product.isActive === false");

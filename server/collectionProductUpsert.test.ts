@@ -27,7 +27,11 @@ describe("collector product auto-upsert", () => {
   it("stores every observation but updates master information only from the latest collectedAt", () => {
     expect(db).toContain('await tx.insert(collectedPriceHistory).values({');
     expect(db).toContain('price: effectivePrice || null');
-    expect(db).toContain('const latestPriceObservationAt = current.wowMemberPriceObservedAt ?? current.lastSeenAt;');
+    // 2026-09-17: wowMemberPriceObservedAt은 품절 관측에서 갱신되지 않아, 이미 확인된
+    // 품절 상태를 지연 도착한 옛 판매중 관측이 되돌리는 버그가 있었다. 모든 관측에서
+    // 갱신되는 lastSeenAt 하나만 최신 관측 기준으로 쓴다.
+    expect(db).toContain('const latestPriceObservationAt = current.lastSeenAt;');
+    expect(db).not.toContain('const latestPriceObservationAt = current.wowMemberPriceObservedAt ?? current.lastSeenAt;');
     expect(db).toContain('imageUrl: item.imageUrl?.trim() || current.imageUrl');
     expect(db).toContain('variantLabel: optionName && canReplaceMetadata ? optionName : current.variantLabel');
     expect(db).toContain('packSize: packSize && canReplaceMetadata ? packSize : current.packSize');

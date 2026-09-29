@@ -20,7 +20,8 @@ describe("admin current price option metadata", () => {
   it("passes a validated quantity through the admin API to the product helper", () => {
     expect(router).toContain("quantity: z.number().int().min(1).max(100000).nullable()");
     expect(router).toContain("row.quantity ?? null");
-    expect(db).toContain("quantity, optionMetadataSource: \"manual\"");
+    // 2026-09-17: 관리자가 용량을 고치면 unitPrice(단가)도 같이 다시 계산해 저장한다.
+    expect(db).toContain("unitPrice, optionMetadataSource: \"manual\"");
     expect(db).toContain("export async function updateAdminProductOptionMetadata");
   });
 });
