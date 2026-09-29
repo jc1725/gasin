@@ -42,6 +42,21 @@ describe("deferred search price refresh job", () => {
     expect(mocks.finishSyncRun).toHaveBeenCalledWith(7, "success", 2, expect.stringContaining("fresh 1개"));
   });
 
+  // 2026-09-29: 딥링크 생성 대기는 이 실행과 무관한 경로(수집기 신규 등록, 미일치 상품의
+  // 딥링크 유지 등)에서도 계속 쌓인다. 예전에는 이번 실행에서 재확인·유지된 상품이 있을
+  // 때만 생성을 호출해서, 조용한 주기가 이어지면 대기 물량이 줄지 않았다.
+  it("always drains the pending deep-link queue, even when nothing matched in this run", async () => {
+    mocks.searchCatalogSafely.mockReset();
+    mocks.searchCatalogSafely
+      .mockResolvedValueOnce({ source: "coupang", products: [] })
+      .mockResolvedValueOnce({ source: "coupang", products: [] });
+    mocks.recordDeferredSearchRecheckMiss.mockResolvedValue("awaiting_collection");
+
+    await refreshDeferredSearchPrices();
+
+    expect(mocks.generatePendingDeepLinks).toHaveBeenCalledTimes(1);
+  });
+
   it("isolates a 400 error in the general deferred recheck and continues to the next product", async () => {
     mocks.searchCatalogSafely.mockReset();
     mocks.searchCatalogSafely

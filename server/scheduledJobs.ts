@@ -385,11 +385,16 @@ export async function refreshDeferredSearchPrices() {
       return { processedCount: 0, skipped: true, detail: `Coupang API 보호 모드: 검색 등록 ${deferredSearchCount}개를 ${quota.retryAt?.toISOString() ?? "해제 시각 미정"}까지 보류` } satisfies JobOutcome;
     }
     const outcome = await recheckDeferredSearchProductsForPriceJob();
-    // 정확 SKU가 공식 결과에서 다시 확인되어 pending으로 전환된 경우에만 새 링크를 생성한다.
-    // 실패했던 URL을 재사용하지 않고, 이번 공식 응답의 최신 상품 URL만 사용한다.
-    const deepLinkBatch = outcome.refreshedProducts.length > 0 || (outcome.collectorTrustedCount ?? 0) > 0
-      ? await generatePendingDeepLinks()
-      : { processedCount: 0, detail: "정확 SKU 재확인·수집기 관측 유지 상품이 없어 딥링크 재생성을 건너뛰었습니다." };
+    // 2026-09-29: 예전에는 "이번 실행에서 정확 SKU가 재확인됐거나 수집기 관측으로 유지된
+    // 상품이 있을 때"만 딥링크 생성을 호출했다. 그런데 딥링크 생성 대기(pending)는 이
+    // 실행과 무관한 경로에서도 계속 쌓인다(수집기 신규 등록, 미일치 상품의 딥링크 유지
+    // 처리, 관리자 수동 확인 등). 그 결과 조용한 주기가 이어지면 대기 물량이 줄지 않고
+    // 남아, 딥링크가 있어야만 방문하는 수집기 자동 순회까지 함께 굶는다. 이제 3분 주기마다
+    // 항상 호출한다 — 대기 상품이 없으면 DB 조회 한 번으로 끝나고, 이미 link.coupang.com
+    // 주소를 가진 상품은 쿠팡 API를 부르지 않고 그대로 재사용하므로 추가 비용이 거의 없다.
+    // (실패했던 URL을 재사용하지 않는다는 기존 원칙은 generateDeepLinksForProducts 안에서
+    // 그대로 유지된다.)
+    const deepLinkBatch = await generatePendingDeepLinks();
     await db.markScheduleCompleted("price");
     return {
       processedCount: outcome.processedCount,
