@@ -2321,11 +2321,23 @@ export const SEARCH_REFRESH_INTERVAL_MS = 24 * 60 * 60 * 1000;
 /** 정확 SKU 미일치도 가격 추적 완료로 기록하고, 과도한 재호출 없이 24시간 뒤 재시도합니다. */
 export const SEARCH_RECHECK_MISS_DELAY_MS = SEARCH_REFRESH_INTERVAL_MS;
 
+/**
+ * 2026-09-29: 수집기 관측 대기(awaiting_collection)로 내려간 상품을 이 함수가 3분마다
+ * 다시 deferred로 되돌리고 nextRefreshAt까지 now로 채워서, "24시간 뒤 재시도"라는 설계와
+ * 달리 사실상 3분마다 같은 상품을 계속 재검색하고 있었다(7일간 SKU 미일치 16,183건,
+ * 보호 모드 1,059건의 주된 원인). 이제 수집기 관측 대기 상품은 건드리지 않는다 —
+ * 수집기가 실제로 관측하면 그 경로에서 fresh로 돌아온다. 다만 수집기가 오랫동안
+ * 방문하지 못한 상품까지 영영 묶이지 않도록, 마지막 시도가 아주 오래된 경우에만
+ * 다시 대기열에 넣는다.
+ */
+export const AWAITING_COLLECTION_RETRY_AFTER_MS = 7 * 24 * 60 * 60 * 1000;
+
 export async function deferSearchProductRefresh(productIds: number[], now = new Date()) {
   if (productIds.length === 0) return 0;
   const db = await getDb();
   if (!db) return 0;
   const refreshBefore = new Date(now.getTime() - SEARCH_REFRESH_INTERVAL_MS);
+  const awaitingRetryBefore = new Date(now.getTime() - AWAITING_COLLECTION_RETRY_AFTER_MS);
   await db
     .update(products)
     .set({
@@ -2333,7 +2345,16 @@ export async function deferSearchProductRefresh(productIds: number[], now = new 
       lastRefreshReason: sql`CASE WHEN ${products.refreshState} = 'deferred' THEN ${products.lastRefreshReason} ELSE ${SEARCH_REFRESH_DEFERRED_REASON} END`,
       nextRefreshAt: sql`COALESCE(${products.nextRefreshAt}, ${now})`,
     })
-    .where(and(eq(products.source, "search"), inArray(products.id, productIds), lte(products.lastSeenAt, refreshBefore)));
+    .where(and(
+      eq(products.source, "search"),
+      inArray(products.id, productIds),
+      lte(products.lastSeenAt, refreshBefore),
+      or(
+        ne(products.refreshState, "awaiting_collection"),
+        isNull(products.lastRefreshAttemptAt),
+        lte(products.lastRefreshAttemptAt, awaitingRetryBefore),
+      ),
+    ));
   return productIds.length;
 }
 
@@ -2475,7 +2496,9 @@ export async function getStaleTrackedProductsForExtensionRevisit(limit: number, 
       eq(products.deepLinkStatus, "ready"),
       like(products.deepLinkUrl, "https://link.coupang.com/%"),
     ))
-    .orderBy(asc(products.lastSeenAt))
+    // 2026-09-29: 수집기 관측만이 해소 경로인 상품(awaiting_collection)을 먼저 방문한다.
+    // 그다음은 기존대로 가장 오래 확인되지 않은 순.
+    .orderBy(sql`CASE WHEN ${products.refreshState} = 'awaiting_collection' THEN 0 ELSE 1 END`, asc(products.lastSeenAt))
     // 2026-09-18: 카테고리 제외 필터가 생기기 전에 저장된 trip.coupang.com(쿠팡
     // 트래블) 잔여 행이 있으면, 이 후보 목록을 통해 수집기가 매번 헛방문(탭만
     // 열고 20초 타임아웃)을 반복하게 된다. 여기서도 한 번 더 걸러서 그런 잔여
@@ -2555,6 +2578,20 @@ export async function getExternalCronRecheckSummary(now = new Date()) {
   return summarizeExternalCronQueue(rows, now);
 }
 
+/**
+ * 미일치가 반복되는 상품의 다음 재시도 간격. 마지막으로 실제 확인된 지 오래됐을수록
+ * 공식 검색으로 찾아질 가능성이 낮으므로 간격을 늘린다(수집기 관측이 오면 그 즉시
+ * fresh로 돌아오므로 늦어져서 손해 볼 게 없다).
+ */
+export function getUnmatchedRetryDelayMs(lastSeenAt: Date | null, now = new Date()) {
+  const DAY = 24 * 60 * 60 * 1000;
+  if (!lastSeenAt) return DAY;
+  const staleMs = now.getTime() - lastSeenAt.getTime();
+  if (staleMs >= 30 * DAY) return 7 * DAY;
+  if (staleMs >= 7 * DAY) return 3 * DAY;
+  return DAY;
+}
+
 export async function recordDeferredSearchRecheckMiss(productId: number, reason: string, now = new Date()): Promise<DeferredSearchRecheckMissOutcome> {
   const db = await getDb();
   if (!db) return "awaiting_collection";
@@ -2564,6 +2601,7 @@ export async function recordDeferredSearchRecheckMiss(productId: number, reason:
     wowMemberPriceObservedAt: products.wowMemberPriceObservedAt,
     deepLinkStatus: products.deepLinkStatus,
     deepLinkUrl: products.deepLinkUrl,
+    lastSeenAt: products.lastSeenAt,
   }).from(products).where(eq(products.id, productId)).limit(1))[0];
   if (product && hasTrustedExtensionSkuObservation(product, now)) {
     const hasStoredDeepLink = product.deepLinkStatus === "ready" && Boolean(product.deepLinkUrl);
@@ -2590,7 +2628,9 @@ export async function recordDeferredSearchRecheckMiss(productId: number, reason:
     refreshState: "awaiting_collection",
     lastRefreshReason: `${reason} 가신 수집기에서 실제 옵션을 다시 관측하면 가격 추적을 재개합니다.`,
     lastRefreshAttemptAt: now,
-    nextRefreshAt: null,
+    // 2026-09-29: 같은 상품을 계속 다시 검색해 API 예산만 태우던 문제를 막기 위해,
+    // 오래 못 찾은 상품일수록 다음 재시도를 멀리 잡는다(1일 → 3일 → 7일).
+    nextRefreshAt: new Date(now.getTime() + getUnmatchedRetryDelayMs(product?.lastSeenAt ?? null, now)),
     ...(keepsStoredDeepLink
       ? { deepLinkFailureReason: null }
       : { deepLinkStatus: "pending" as const, deepLinkUrl: null, deepLinkFailureReason: null, deepLinkUpdatedAt: now }),

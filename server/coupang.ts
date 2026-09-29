@@ -239,18 +239,6 @@ export async function searchCoupangProducts(keyword: string, limit = 10, callTyp
   });
 }
 
-/**
- * 파트너스 Search API에는 seller-product 상세 조회처럼 vendorItemId를 직접
- * 조회하는 공개 엔드포인트가 없으므로, 상품 ID를 검색어로 넣는 공식 API
- * 재조회만 수행한다. 반환 URL에 itemId/vendorItemId가 포함된 경우에만
- * 후보로 사용하고, 최종 반영은 multiStageSkuMatcher가 옵션까지 재검증한다.
- */
-export async function lookupCoupangProductByProductId(productId: string | number, limit = 10) {
-  const normalizedProductId = String(productId).trim();
-  if (!/^\d+$/.test(normalizedProductId)) return [];
-  return searchCoupangProducts(normalizedProductId, limit, "price-tracking");
-}
-
 export async function createCoupangDeepLinks(coupangUrls: string[]) {
   const uniqueUrls = normalizeCoupangDeepLinkUrls(coupangUrls);
   if (uniqueUrls.length === 0) return [];

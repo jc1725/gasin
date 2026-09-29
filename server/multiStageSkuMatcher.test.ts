@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   buildPriceRefreshQueryVariants,
   findSkuWithFallbackQueries,
+  PRICE_REFRESH_CORE_NAME_TOKENS,
   scoreSkuCandidate,
 } from "./multiStageSkuMatcher";
 
@@ -25,10 +26,14 @@ describe("multi-stage SKU matcher", () => {
     expect(queries[0]).toContain("1개");
   });
 
-  it("keeps the option-aware query in the bounded two-query budget", () => {
+  // 2026-09-29: 긴 상품명 그대로 검색하면 결과가 거의 안 나와서, 두 검색어 모두 핵심
+  // 단어만 남긴 짧은 형태로 바꿨다. 2차는 1차보다 더 짧고 용량만 덧붙인다.
+  it("keeps both queries short, with the second one shorter than the first", () => {
     const queries = buildPriceRefreshQueryVariants({ ...stored, unitLabel: null, quantity: null, variantLabel: "310g, 1개" });
+    expect(queries[0].split(" ").length).toBeLessThanOrEqual(PRICE_REFRESH_CORE_NAME_TOKENS + 2);
     expect(queries[1]).toContain("310g");
-    expect(queries[1]).toContain("1개");
+    expect(queries[1].length).toBeLessThan(queries[0].length);
+    expect(queries[1]).not.toContain(stored.name);
   });
 
   it("gives the exact three-part SKU the highest confidence", () => {
@@ -51,18 +56,15 @@ describe("multi-stage SKU matcher", () => {
     expect(result.exact?.product.externalProductId).toBe(stored.externalProductId);
   });
 
-  it("uses productId detail revalidation as the bounded second stage", async () => {
+  // 2026-09-29: 상품 ID 숫자를 검색어로 넣던 2차 재조회를 없앴다. 쿠팡 검색은 숫자 ID를
+  // 일반 키워드로 취급해 적중률이 낮았고, 상품당 API 호출만 2배가 됐다.
+  it("never searches by the numeric productId", async () => {
     const search = vi.fn().mockResolvedValue({ source: "coupang", products: [] });
-    const detail = vi.fn().mockResolvedValue({ source: "coupang", products: [{ ...stored }] });
 
-    const result = await findSkuWithFallbackQueries(stored, search, async productId => {
-      expect(productId).toBe("5727587582");
-      return detail(productId);
-    });
+    await findSkuWithFallbackQueries(stored, search);
 
-    expect(search).toHaveBeenCalledTimes(1);
-    expect(detail).toHaveBeenCalledTimes(1);
-    expect(result.exact?.product.externalProductId).toBe(stored.externalProductId);
+    for (const [query] of search.mock.calls) expect(query).not.toBe("5727587582");
+    expect(search).toHaveBeenCalledTimes(2);
   });
 
   it("does not auto-accept a productId-only candidate", async () => {

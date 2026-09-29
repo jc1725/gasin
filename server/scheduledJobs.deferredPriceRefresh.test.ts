@@ -26,9 +26,10 @@ describe("deferred search price refresh job", () => {
       { id: 42, externalProductId: "42:33:44", name: "가격 갱신 상품 B" },
     ]);
     const refreshed = { id: 41, externalProductId: "41:11:22", name: "가격 갱신 상품 A", variantLabel: "혼합색상", unitLabel: "20cm", quantity: 1, currentPrice: 10_000 };
+    // 2026-09-29: 미일치 상품은 더 짧게 줄인 2차 검색어로 한 번 더 시도한다.
     mocks.searchCatalogSafely
       .mockResolvedValueOnce({ source: "coupang", products: [refreshed] })
-      .mockResolvedValueOnce({ source: "coupang", products: [] });
+      .mockResolvedValue({ source: "coupang", products: [] });
   });
 
   it("rechecks a safe batch and records attempts even when an exact SKU is unavailable", async () => {
@@ -37,6 +38,9 @@ describe("deferred search price refresh job", () => {
     expect(mocks.getDeferredSearchProducts).toHaveBeenCalledWith(30);
     expect(mocks.searchCatalogSafely).toHaveBeenNthCalledWith(1, "가격 갱신 상품 A 20cm 1개", 10, { forceExternal: true, callType: "price-tracking" });
     expect(mocks.searchCatalogSafely).toHaveBeenNthCalledWith(2, "가격 갱신 상품 B", 10, { forceExternal: true, callType: "price-tracking" });
+    // 2차 검색어는 더 짧은 형태이며, 상품 ID 숫자로는 절대 검색하지 않는다.
+    expect(mocks.searchCatalogSafely).toHaveBeenNthCalledWith(3, "가격 갱신 상품", 10, { forceExternal: true, callType: "price-tracking" });
+    for (const [query] of mocks.searchCatalogSafely.mock.calls) expect(query).not.toMatch(/^\d+$/);
     expect(mocks.recordDeferredSearchRecheckMiss).toHaveBeenCalledWith(42, expect.stringContaining("정확 SKU"));
     expect(mocks.generatePendingDeepLinks).toHaveBeenCalledTimes(1);
     expect(mocks.finishSyncRun).toHaveBeenCalledWith(7, "success", 2, expect.stringContaining("fresh 1개"));
@@ -61,7 +65,7 @@ describe("deferred search price refresh job", () => {
     mocks.searchCatalogSafely.mockReset();
     mocks.searchCatalogSafely
       .mockRejectedValueOnce(new Error("Coupang API error 400: keyword maximum length is 50"))
-      .mockResolvedValueOnce({ source: "coupang", products: [] });
+      .mockResolvedValue({ source: "coupang", products: [] });
 
     await expect(recheckDeferredSearchProducts()).resolves.toContain("정확 SKU 미일치 1개");
     expect(mocks.recordDeferredSearchRecheckError).toHaveBeenCalledWith(41, "Coupang API error 400: keyword maximum length is 50");
@@ -73,7 +77,7 @@ describe("deferred search price refresh job", () => {
     mocks.searchCatalogSafely.mockReset();
     mocks.searchCatalogSafely
       .mockRejectedValueOnce(new Error("Coupang API error 400: keyword maximum length is 50"))
-      .mockResolvedValueOnce({ source: "coupang", products: [] });
+      .mockResolvedValue({ source: "coupang", products: [] });
 
     await expect(refreshDeferredSearchPrices()).resolves.toMatchObject({ processedCount: 2 });
 

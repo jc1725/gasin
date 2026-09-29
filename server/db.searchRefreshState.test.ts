@@ -46,16 +46,19 @@ describe("deferSearchProductRefresh", () => {
     await recordDeferredSearchRecheckMiss(11, "정확 SKU 미일치", attemptedAt);
 
     expect(mocks.payloads).toHaveLength(1);
+    // 2026-09-29: nextRefreshAt을 null로 두면 다음 heartbeat가 곧바로 다시 대기열에 넣어
+    // 3분마다 같은 상품을 재검색했다. 이제 백오프 시각(최소 1일 뒤)을 기록한다.
     expect(mocks.payloads[0]).toMatchObject({
       refreshState: "awaiting_collection",
       lastRefreshAttemptAt: attemptedAt,
-      nextRefreshAt: null,
       deepLinkStatus: "pending",
       deepLinkUrl: null,
       deepLinkUpdatedAt: attemptedAt,
     });
     expect(mocks.payloads[0]).not.toMatchObject({ deepLinkStatus: "failed" });
     expect(mocks.payloads[0]).toHaveProperty("lastRefreshReason");
+    expect((mocks.payloads[0] as { nextRefreshAt: Date }).nextRefreshAt.getTime())
+      .toBeGreaterThanOrEqual(attemptedAt.getTime() + 24 * 60 * 60 * 1000);
     expect(SEARCH_RECHECK_MISS_DELAY_MS).toBe(SEARCH_REFRESH_INTERVAL_MS);
   });
 

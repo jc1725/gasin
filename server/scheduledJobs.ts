@@ -82,17 +82,10 @@ async function recheckDeferredSearchProductsForPriceJob() {
     let apiCalls = 0;
     let match: Awaited<ReturnType<typeof findSkuWithFallbackQueries>>;
     try {
-      match = await findSkuWithFallbackQueries(
-        candidate,
-        query => {
-          apiCalls += 1;
-          return searchCatalogSafely(query, 10, { forceExternal: true, callType: "price-tracking" });
-        },
-        productId => {
-          apiCalls += 1;
-          return searchCatalogSafely(productId, 10, { forceExternal: true, callType: "price-tracking" });
-        },
-      );
+      match = await findSkuWithFallbackQueries(candidate, query => {
+        apiCalls += 1;
+        return searchCatalogSafely(query, 10, { forceExternal: true, callType: "price-tracking" });
+      });
     } catch (error) {
       attemptedCount += 1;
       apiErrorCount += 1;
@@ -125,7 +118,7 @@ async function recheckDeferredSearchProductsForPriceJob() {
       : " 정확 SKU 후보가 반환되지 않았습니다.";
     const outcome = await db.recordDeferredSearchRecheckMiss(
       candidate.id,
-      `승인된 Search API와 상품 ID 재조회(${match.queries.length}회)에서 productId·itemId·vendorItemId 전체가 일치하는 SKU를 찾지 못했습니다.${bestReason}`,
+      `승인된 Search API 검색(${match.queries.length}회)에서 productId·itemId·vendorItemId 전체가 일치하는 SKU를 찾지 못했습니다.${bestReason}`,
     );
     if (outcome === "collector_trusted") {
       collectorTrustedCount += 1;
