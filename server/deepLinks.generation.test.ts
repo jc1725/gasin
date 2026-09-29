@@ -19,7 +19,7 @@ vi.mock("./db", () => ({
 }));
 vi.mock("./coupang", () => ({ createCoupangDeepLinks: mocks.createCoupangDeepLinks }));
 
-import { generatePendingDeepLinks } from "./deepLinks";
+import { DEEP_LINK_API_CALLS_PER_RUN, generatePendingDeepLinks } from "./deepLinks";
 import { buildDeepLinkUpdate } from "./trackingState";
 
 describe("generatePendingDeepLinks", () => {
@@ -111,5 +111,22 @@ describe("generatePendingDeepLinks", () => {
 
     await expect(generatePendingDeepLinks()).resolves.toMatchObject({ processedCount: 0, skipped: true, detail: expect.stringMatching(new RegExp(`minute-limit.*${retryAt.toISOString()}`)) });
     expect(mocks.recordCoupangRateLimitEvent).toHaveBeenCalledWith("deeplink", "minute-limit", retryAt);
+  });
+
+  // 2026-09-29: 생성 대기 상한을 200으로 올리면서, 쿠팡 변환 API를 부르는 상품만 한
+  // 실행당 20개로 따로 막는다(가격 추적 분당 예산 보호). 재사용 가능한 링크는 API를
+  // 부르지 않으므로 상한과 무관하게 전부 처리해야 한다.
+  it("processes every reusable link but caps API conversions per run", async () => {
+    mocks.getSearchApiQuotaStatus.mockResolvedValue({ allowed: true });
+    const reusable = Array.from({ length: 50 }, (_, index) => ({ id: 1000 + index, affiliateUrl: `https://link.coupang.com/a/reuse${index}` }));
+    const direct = Array.from({ length: 30 }, (_, index) => ({ id: 2000 + index, affiliateUrl: `https://www.coupang.com/vp/products/${index}` }));
+    mocks.listPendingDeepLinkProducts.mockResolvedValue([...reusable, ...direct]);
+    mocks.createCoupangDeepLinks.mockImplementation(async (urls: string[]) => [{ originUrl: urls[0], shortenUrl: "https://link.coupang.com/a/new", landingUrl: null }]);
+
+    const result = await generatePendingDeepLinks();
+
+    expect(mocks.createCoupangDeepLinks).toHaveBeenCalledTimes(DEEP_LINK_API_CALLS_PER_RUN);
+    expect(result.processedCount).toBe(reusable.length + DEEP_LINK_API_CALLS_PER_RUN);
+    expect(result.detail).toContain("다음 실행으로 미뤘습니다");
   });
 });

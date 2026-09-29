@@ -3,6 +3,9 @@ import * as db from "./db";
 import { CoupangRateLimitError } from "./coupangRateLimit";
 
 export type DeepLinkBatchResult = { processedCount: number; skipped?: boolean; detail: string };
+
+/** 한 실행에서 쿠팡 딥링크 변환 API를 부를 최대 상품 수(가격 추적 분당 예산 보호). */
+export const DEEP_LINK_API_CALLS_PER_RUN = 20;
 type PendingDeepLinkProduct = { id: number; affiliateUrl: string };
 
 function isStoredCoupangAffiliateUrl(value: string) {
@@ -38,7 +41,12 @@ async function generateDeepLinksForProducts(pending: PendingDeepLinkProduct[]): 
 
   const reusable = pending.filter(product => isStoredCoupangAffiliateUrl(product.affiliateUrl));
   const invalid = pending.filter(product => !isStoredCoupangAffiliateUrl(product.affiliateUrl) && !isSupportedDirectCoupangUrl(product.affiliateUrl));
-  const direct = pending.filter(product => isSupportedDirectCoupangUrl(product.affiliateUrl));
+  // 재사용(이미 link.coupang.com)과 형식 오류는 쿠팡 API를 부르지 않으므로 한 번에 전부
+  // 처리한다. 실제 변환 호출이 필요한 상품만 한 실행당 상한을 둔다 — 3분 주기 안에서
+  // 가격 추적 예산(분당 32회)을 침범하지 않기 위함이다. 남은 건 다음 주기에 이어서 한다.
+  const directCandidates = pending.filter(product => isSupportedDirectCoupangUrl(product.affiliateUrl));
+  const direct = directCandidates.slice(0, DEEP_LINK_API_CALLS_PER_RUN);
+  const deferredDirectCount = directCandidates.length - direct.length;
   for (const product of reusable) await db.saveDeepLinkForProduct(product.id, product.affiliateUrl);
   for (const product of invalid) await db.saveDeepLinkForProduct(product.id, null, "원본 URL 문제: 수집·저장된 주소가 지원되는 쿠팡 상품 URL이 아닙니다.");
 
@@ -69,13 +77,14 @@ async function generateDeepLinksForProducts(pending: PendingDeepLinkProduct[]): 
     if (deepLinkUrl) ready += 1;
     else failed += 1;
   }
+  const deferredDetail = deferredDirectCount > 0 ? `변환 호출이 필요한 ${deferredDirectCount}개는 다음 실행으로 미뤘습니다.` : "";
   const invalidDetail = invalid.length > 0 ? `지원하지 않는 URL ${invalid.length}개는 외부 호출 없이 실패 처리했습니다.` : "지원하지 않는 URL은 없습니다.";
   const failedDetail = failed > 0 ? `딥링크 생성 실패 ${failed}개는 해당 상품만 재시도 대기로 남겼습니다.` : "딥링크 생성 실패 상품은 없습니다.";
-  return { processedCount: ready, detail: `옵션 SKU ${pending.length}개 중 ${ready}개의 딥링크를 저장했습니다. 기존 제휴 링크 ${reusable.length}개를 재사용했습니다. ${invalidDetail} ${failedDetail}` };
+  return { processedCount: ready, detail: `옵션 SKU ${pending.length}개 중 ${ready}개의 딥링크를 저장했습니다. 기존 제휴 링크 ${reusable.length}개를 재사용했습니다. ${deferredDetail} ${invalidDetail} ${failedDetail}`.replace(/\s+/g, " ").trim() };
 }
 
 export async function generatePendingDeepLinks(): Promise<DeepLinkBatchResult> {
-  return generateDeepLinksForProducts(await db.listPendingDeepLinkProducts(20));
+  return generateDeepLinksForProducts(await db.listPendingDeepLinkProducts());
 }
 
 /** 유효한 확장 수집 관측으로 확인된 정확 SKU만 즉시 처리한다. */

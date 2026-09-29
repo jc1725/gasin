@@ -2629,7 +2629,16 @@ export async function getTrackingPrioritySummary() {
   return summary;
 }
 
-export async function listPendingDeepLinkProducts(limit = 20) {
+/**
+ * 2026-09-29: 상한이 20이라 생성 대기 6,497개를 다 만드는 데 16시간이 걸렸다. 대기 상품
+ * 대부분은 검색·골드박스로 들어와 이미 link.coupang.com 주소를 갖고 있어서 쿠팡 API를
+ * 전혀 부르지 않고 그대로 재사용된다(deepLinks.ts 참고) — 즉 느린 이유가 API 한도가
+ * 아니라 이 상한이었다. 200으로 올린다. 실제 API 호출이 필요한 상품은 deepLinks.ts에서
+ * 한 실행당 별도 상한(DEEP_LINK_API_CALLS_PER_RUN)으로 따로 막는다.
+ */
+export const PENDING_DEEP_LINK_FETCH_LIMIT = 200;
+
+export async function listPendingDeepLinkProducts(limit = PENDING_DEEP_LINK_FETCH_LIMIT) {
   const db = await getDb();
   if (!db) return [];
   return db
@@ -2637,7 +2646,7 @@ export async function listPendingDeepLinkProducts(limit = 20) {
     .from(products)
     .where(and(eq(products.deepLinkStatus, "pending"), eq(products.isActive, true)))
     .orderBy(asc(products.firstSeenAt))
-    .limit(Math.min(Math.max(limit, 1), 20));
+    .limit(Math.min(Math.max(limit, 1), PENDING_DEEP_LINK_FETCH_LIMIT));
 }
 
 /** 수집기에서 새로 확인된 정확 SKU만 즉시 딥링크 생성 대상으로 가져온다. */
