@@ -35,6 +35,8 @@ describe("deferSearchProductRefresh", () => {
     expect(mocks.payloads[0]).toHaveProperty("nextRefreshAt");
   });
 
+  // 2026-09-29: 딥링크를 지우면 자동 순회(딥링크 전용 방문)가 그 상품을 영원히 방문하지 못해
+  // 복구 경로가 사라진다. 미일치여도 딥링크는 유지하거나 pending으로 남겨 생성되게 한다.
   it("moves an exact-SKU miss to collector observation waiting instead of repeating official API retries", async () => {
     const { recordDeferredSearchRecheckMiss, SEARCH_RECHECK_MISS_DELAY_MS, SEARCH_REFRESH_INTERVAL_MS } = await import("./db");
     const attemptedAt = new Date("2026-08-25T04:10:00.000Z");
@@ -46,10 +48,11 @@ describe("deferSearchProductRefresh", () => {
       refreshState: "awaiting_collection",
       lastRefreshAttemptAt: attemptedAt,
       nextRefreshAt: null,
-      deepLinkStatus: "failed",
+      deepLinkStatus: "pending",
       deepLinkUrl: null,
       deepLinkUpdatedAt: attemptedAt,
     });
+    expect(mocks.payloads[0]).not.toMatchObject({ deepLinkStatus: "failed" });
     expect(mocks.payloads[0]).toHaveProperty("lastRefreshReason");
     expect(SEARCH_RECHECK_MISS_DELAY_MS).toBe(SEARCH_REFRESH_INTERVAL_MS);
   });
@@ -74,6 +77,24 @@ describe("deferSearchProductRefresh", () => {
       nextRefreshAt: null,
     });
     expect(mocks.payloads[0]).not.toHaveProperty("deepLinkUrl", null);
+  });
+
+  // 2026-09-29: 공식 검색은 정확 SKU를 자주 놓치므로, 수집기 관측 신뢰 기간을 7일에서
+  // 30일로 늘렸다. 10일 전 관측도 여전히 추적 유지 신호로 인정해야 한다.
+  it("keeps trusting an extension observation from within the 30-day window", async () => {
+    const { recordDeferredSearchRecheckMiss, COLLECTOR_SKU_TRUST_WINDOW_MS } = await import("./db");
+    expect(COLLECTOR_SKU_TRUST_WINDOW_MS).toBe(30 * 24 * 60 * 60 * 1000);
+    const attemptedAt = new Date("2026-09-29T03:00:00.000Z");
+    mocks.select.mockReturnValueOnce({ from: () => ({ where: () => ({ limit: vi.fn().mockResolvedValue([{
+      inStock: true,
+      wowMemberPrice: 65000,
+      wowMemberPriceObservedAt: new Date(attemptedAt.getTime() - 10 * 24 * 60 * 60 * 1000),
+      deepLinkStatus: "ready",
+      deepLinkUrl: "https://link.coupang.com/a/exact-sku",
+    }]) }) }) });
+
+    await expect(recordDeferredSearchRecheckMiss(11, "정확 SKU 미일치", attemptedAt)).resolves.toBe("collector_trusted");
+    expect(mocks.payloads[0]).toMatchObject({ refreshState: "fresh", deepLinkStatus: "ready" });
   });
 
   it("queues every active in-stock search product immediately when an administrator requests a full refresh", async () => {

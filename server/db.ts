@@ -116,6 +116,14 @@ export type StoredWebPushSubscription = WebPushSubscriptionInput & { id: number;
 
 export type DeferredSearchRecheckMissOutcome = "awaiting_collection" | "collector_trusted";
 
+/**
+ * 2026-09-29: 수집기 관측 신뢰 기간을 7일에서 30일로 늘렸다. 공식 Search API는 정확 SKU를
+ * 키워드 검색 상위 10개 안에서만 확인할 수 있어(server/multiStageSkuMatcher.ts) 멀쩡히 팔리는
+ * 상품도 자주 "미일치"로 떨어진다. 수집기가 실제 상품 페이지에서 본 관측이 훨씬 정확한
+ * 신호이므로, 그 관측이 살아있는 동안에는 미일치 판정으로 추적을 끊지 않는다.
+ */
+export const COLLECTOR_SKU_TRUST_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
+
 /** 정확 SKU의 최근 확장 수집 관측은 공식 검색 미발견보다 우선하는 실제 판매 상태 신호다. */
 export function hasTrustedExtensionSkuObservation(
   product: Pick<typeof products.$inferSelect, "inStock" | "wowMemberPrice" | "wowMemberPriceObservedAt">,
@@ -125,7 +133,7 @@ export function hasTrustedExtensionSkuObservation(
   return product.inStock === true
     && Number(product.wowMemberPrice ?? 0) > 0
     && observedAt !== null
-    && observedAt.getTime() >= now.getTime() - 7 * 24 * 60 * 60 * 1000;
+    && observedAt.getTime() >= now.getTime() - COLLECTOR_SKU_TRUST_WINDOW_MS;
 }
 
 function getWebPushEndpointHash(endpoint: string) {
@@ -2569,17 +2577,23 @@ export async function recordDeferredSearchRecheckMiss(productId: number, reason:
     }).where(eq(products.id, productId));
     return "collector_trusted";
   }
+  // 2026-09-29: 예전에는 여기서 딥링크를 지웠다(deepLinkStatus: "failed"). 그런데 수집기
+  // 자동 순회가 딥링크가 있는 상품만 방문하도록 바뀐 뒤로는(db.ts
+  // getStaleTrackedProductsForExtensionRevisit) 딥링크를 지우는 순간 그 상품이 자동 순회
+  // 대상에서 영구히 빠져, "수집기가 다시 관측하면 재개한다"는 복구 경로 자체가 사라졌다.
+  // 이제 딥링크는 유지하거나(없으면 pending으로 두어 생성되게 하고) 자동 순회 방문 경로로
+  // 계속 쓴다. 고객 구매 버튼은 refreshState가 awaiting_collection인 동안 클라이언트에서
+  // 그대로 숨겨지므로(ProductDetail·AdminPrices의 needsPurchaseFallback) 잘못된 옵션으로
+  // 이동시킬 위험은 없다.
+  const keepsStoredDeepLink = product?.deepLinkStatus === "ready" && Boolean(product.deepLinkUrl);
   await db.update(products).set({
     refreshState: "awaiting_collection",
     lastRefreshReason: `${reason} 가신 수집기에서 실제 옵션을 다시 관측하면 가격 추적을 재개합니다.`,
     lastRefreshAttemptAt: now,
     nextRefreshAt: null,
-    // 정확 SKU가 공식 응답에서 사라진 경우 기존 제휴 링크는 판매 종료·옵션 변경일 수 있다.
-    // 잘못된 옵션으로 이동시키지 않도록 자동 구매 링크를 숨기고, 다음 정확 SKU 응답에서만 재생성한다.
-    deepLinkStatus: "failed",
-    deepLinkUrl: null,
-    deepLinkFailureReason: `정확 SKU 미확인: ${reason}`,
-    deepLinkUpdatedAt: now,
+    ...(keepsStoredDeepLink
+      ? { deepLinkFailureReason: null }
+      : { deepLinkStatus: "pending" as const, deepLinkUrl: null, deepLinkFailureReason: null, deepLinkUpdatedAt: now }),
   }).where(eq(products.id, productId));
   return "awaiting_collection";
 }
