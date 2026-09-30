@@ -22,6 +22,14 @@ describe("admin current price trend covers the whole catalog", () => {
     expect(db).toContain("inArray(products.id, existingIds)");
   });
 
+  // 2026-09-30: 관리자가 상품을 눈으로 알아보고 쿠팡에서 직접 검색·클릭해 수집기로
+  // 모으려면 목록에서 수집된 대표 이미지가 보여야 한다.
+  it("shows the collected product image next to the name", () => {
+    expect(page).toContain("product.imageUrl ?");
+    expect(page).toContain("수집 이미지");
+    expect(page).toContain("이미지<br />없음");
+  });
+
   it("marks inactive/expired rows in the admin list and blocks 품절 on them", () => {
     // 2026-09-22: 비활성 상품은 기본으로 숨기고 "숨김 상품" 버튼으로 보게 바뀌면서
     // 목록 설명 문구도 함께 바뀌었다(조회 자체는 여전히 전체 상품 대상).
