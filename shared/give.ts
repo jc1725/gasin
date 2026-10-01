@@ -49,3 +49,36 @@ export function describePayoutStatus(expectedDate: string, now: Date = new Date(
   const dayAfterExpected = Date.parse(`${expectedDate}T00:00:00+09:00`) + 24 * 60 * 60 * 1000;
   return now.getTime() >= dayAfterExpected ? "정산 확인 중" : "정산 대기";
 }
+
+// ============================================================
+// 2026-10-01 리뉴얼 5단계: 기부 장부(donationLedger) 공통 규칙
+// ------------------------------------------------------------
+export const DONATION_STATUSES = ["accruing", "payout_pending", "paid", "donated"] as const;
+export type DonationStatus = (typeof DONATION_STATUSES)[number];
+
+export const DONATION_STATUS_LABELS: Record<DonationStatus, string> = {
+  accruing: "수익 발생 중",
+  payout_pending: "정산 대기",
+  paid: "지급 완료 · 기부 준비 중",
+  donated: "기부 완료",
+};
+
+/** 기부금 = 세후 지급액 × 기부율, 원 미만 올림(30%를 한 번도 밑돌지 않게). 정수 연산만 쓴다. */
+export function computeDonationKrw(payoutNetKrw: number, ratePct: number) {
+  return Math.ceil((payoutNetKrw * ratePct) / 100);
+}
+
+export function formatKrw(value: number) {
+  return `${new Intl.NumberFormat("ko-KR").format(value)}원`;
+}
+
+/** 공개 화면에 내보내는 장부 한 줄. 금액은 showAmounts가 켜졌고 지급 이후 상태일 때만 담긴다. */
+export type PublicDonationEntry = {
+  earnMonth: string;
+  status: DonationStatus;
+  expectedPayoutDate: string | null;
+  donatedDate: string | null;
+  recipientName: string | null;
+  proofUrl: string | null;
+  amounts: { payoutNetKrw: number; donationRatePct: number; donationKrw: number } | null;
+};

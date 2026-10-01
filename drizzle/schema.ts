@@ -212,6 +212,36 @@ export const goodViaEvents = mysqlTable(
   ]
 );
 
+// 2026-10-01 리뉴얼 5단계: GASIN GIVE 기부 장부. 발생월 1행. 금액은 관리자가 쿠팡 파트너스
+// 정산 입금을 확인한 뒤 직접 입력하고, 기부금은 서버가 계산한다(server/give.ts).
+// - payoutNetKrw: 세후 지급액 = 실제 입금액에서 부가세를 뺀 금액(세금계산서 공급가액).
+// - donationRatePct: 행을 만들 때의 기부율 스냅샷. 나중에 기부율이 바뀌어도 과거 행은 그대로.
+// - 날짜는 시간대 혼동을 피하려고 KST 기준 YYYY-MM-DD 문자열로 둔다.
+// - showAmounts가 false면 공개 화면에 금액을 보내지 않는다. isPublished가 false면 행 자체를 숨긴다.
+export const donationLedger = mysqlTable(
+  "donationLedger",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    earnMonth: varchar("earnMonth", { length: 7 }).notNull(),
+    status: mysqlEnum("status", ["accruing", "payout_pending", "paid", "donated"]).default("payout_pending").notNull(),
+    expectedPayoutDate: varchar("expectedPayoutDate", { length: 10 }),
+    payoutNetKrw: int("payoutNetKrw"),
+    payoutReceivedDate: varchar("payoutReceivedDate", { length: 10 }),
+    donationRatePct: int("donationRatePct").default(30).notNull(),
+    donationKrw: int("donationKrw"),
+    donatedDate: varchar("donatedDate", { length: 10 }),
+    recipientName: varchar("recipientName", { length: 200 }),
+    proofUrl: varchar("proofUrl", { length: 2000 }),
+    note: varchar("note", { length: 1000 }),
+    showAmounts: boolean("showAmounts").default(false).notNull(),
+    isPublished: boolean("isPublished").default(false).notNull(),
+    updatedByUserId: int("updatedByUserId").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => [uniqueIndex("donationLedger_earnMonth_unique").on(table.earnMonth)]
+);
+
 export const priceAlertLogs = mysqlTable(
   "priceAlertLogs",
   {

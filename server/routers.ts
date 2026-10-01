@@ -2,6 +2,8 @@ import { COOKIE_NAME, isAdminEmail } from "@shared/const";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { getMyGoodViaMonth, recordGoodViaFromRequest } from "./goodVia";
+import { donationLedgerInput, listPublicDonationEntries, saveDonationLedgerEntry } from "./give";
+import { listDonationLedgerEntries } from "./db";
 import {
   getProductCandidateForUser,
   getPublicServiceStats,
@@ -262,6 +264,12 @@ export const appRouter = router({
       .mutation(({ ctx, input }) => recordGoodViaFromRequest({ req: ctx.req, userId: ctx.user?.id ?? null, productId: input.productId, source: "product" })),
     // 2026-10-01 리뉴얼 4단계: 회원 본인의 이번 달 이동 횟수(본인 화면 전용, 금액 없음).
     myMonth: protectedProcedure.query(({ ctx }) => getMyGoodViaMonth(ctx.user.id)),
+  }),
+  // 2026-10-01 리뉴얼 5단계: GASIN GIVE 기부 장부. 공개는 isPublished 행만, 금액은 showAmounts일 때만.
+  give: router({
+    public: publicProcedure.query(() => listPublicDonationEntries()),
+    adminList: adminProcedure.query(() => listDonationLedgerEntries()),
+    adminSave: adminProcedure.input(donationLedgerInput).mutation(({ ctx, input }) => saveDonationLedgerEntry(input, ctx.user.id)),
   }),
   siteStats: router({
     public: publicProcedure.query(() => getPublicServiceStats()),

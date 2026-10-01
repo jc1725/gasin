@@ -20,6 +20,7 @@ const AdminSearchHistory = lazy(() => import("./pages/AdminSearchHistory"));
 const AdminProductRequests = lazy(() => import("./pages/AdminProductRequests"));
 const AdminHotDeals = lazy(() => import("./pages/AdminHotDeals"));
 const AdminMembers = lazy(() => import("./pages/AdminMembers"));
+const AdminGive = lazy(() => import("./pages/AdminGive"));
 const HotDeals = lazy(() => import("./pages/HotDeals"));
 
 const routeLoaders: Array<[RegExp, () => Promise<unknown>]> = [
@@ -57,6 +58,7 @@ function Router() {
         <Route path={"/admin/product-requests"} component={AdminProductRequests} />
         <Route path={"/admin/hot-deals"} component={AdminHotDeals} />
         <Route path={"/admin/members"} component={AdminMembers} />
+        <Route path={"/admin/give"} component={AdminGive} />
         <Route path={"/product/:id"} component={ProductDetail} />
         <Route path={"/404"} component={NotFound} />
         <Route component={NotFound} />

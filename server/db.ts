@@ -3,6 +3,7 @@ import { drizzle } from "drizzle-orm/mysql2";
 import {
   categoryBestProducts,
   collectedPriceHistory,
+  donationLedger,
   favorites,
   goodViaEvents,
   googleDriveConnections,
@@ -3514,6 +3515,45 @@ export async function pruneGoodViaEvents(before: Date, maxChunks = 20) {
     if (affected < SYNC_RUN_PRUNE_CHUNK_SIZE) break;
   }
   return deleted;
+}
+
+// ============================================================
+// 2026-10-01 리뉴얼 5단계: GASIN GIVE 기부 장부 (규칙은 server/give.ts)
+// ------------------------------------------------------------
+export async function listDonationLedgerEntries() {
+  const db = await getDb();
+  if (!db) throw new Error("Database is unavailable");
+  return db.select().from(donationLedger).orderBy(desc(donationLedger.earnMonth));
+}
+
+export async function getDonationLedgerEntry(earnMonth: string) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is unavailable");
+  const [row] = await db.select().from(donationLedger).where(eq(donationLedger.earnMonth, earnMonth)).limit(1);
+  return row;
+}
+
+export async function upsertDonationLedgerEntry(entry: {
+  earnMonth: string;
+  status: "accruing" | "payout_pending" | "paid" | "donated";
+  expectedPayoutDate: string | null;
+  payoutNetKrw: number | null;
+  payoutReceivedDate: string | null;
+  donationRatePct: number;
+  donationKrw: number | null;
+  donatedDate: string | null;
+  recipientName: string | null;
+  proofUrl: string | null;
+  note: string | null;
+  showAmounts: boolean;
+  isPublished: boolean;
+  updatedByUserId: number;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is unavailable");
+  const { earnMonth, donationRatePct, ...changes } = entry;
+  // donationRatePct는 처음 만들 때의 스냅샷이라 기존 행을 고칠 때는 바꾸지 않는다.
+  await db.insert(donationLedger).values({ earnMonth, donationRatePct, ...changes }).onDuplicateKeyUpdate({ set: changes });
 }
 
 export async function pruneCollectedPriceHistory(before: Date) {
