@@ -336,8 +336,15 @@ export async function searchCatalogSafely(keyword: string, limit = 10, options: 
     };
   } catch (error) {
     if (error instanceof CoupangRateLimitError) {
-      await db.recordCoupangRateLimitEvent("search", error.reason, error.retryAt);
-      void notifySearchQuotaExceeded({ reason: error.reason, retryAt: error.retryAt });
+      // 2026-10-01: 여기는 사용자 검색과 가격 추적이 함께 지나가는 자리인데, 예산 보류를
+      // 호출 종류와 무관하게 "사용자 검색 한도 초과" 메일로 보내고 있었다. 가격 추적이
+      // 분당 몫 32회를 다 쓰는 것은 설계대로 매 실행 일어나는 일이라, 주기를 1분으로
+      // 올린 뒤 쿨다운(15분)이 허용하는 최대 빈도로 메일이 계속 나갔다. 실제로 사용자
+      // 검색이 막힌 적은 없었다 — 전역 창에 검색 몫 14회는 그대로 남아 있었다.
+      // syncRuns 기록도 추적 호출을 "search" 작업으로 남겨 원인을 가리고 있었다.
+      const isUserSearch = callType === "product-search";
+      await db.recordCoupangRateLimitEvent(isUserSearch ? "search" : "price", error.reason, error.retryAt);
+      if (isUserSearch) void notifySearchQuotaExceeded({ reason: error.reason, retryAt: error.retryAt });
       return {
         products: [],
         source: "rate_limited",

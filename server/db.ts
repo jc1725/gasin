@@ -2222,7 +2222,7 @@ export async function blockCoupangApiUntil(until: Date, reason: string) {
   }).onDuplicateKeyUpdate({ set: { blockedUntil: until, lastError: reason } });
 }
 
-export async function recordCoupangRateLimitEvent(jobType: "search" | "deeplink", reason: string, retryAt?: Date) {
+export async function recordCoupangRateLimitEvent(jobType: "search" | "deeplink" | "price", reason: string, retryAt?: Date) {
   try {
     const runId = await startSyncRun(jobType);
     await finishSyncRun(runId, "success", 0, `Coupang 전역 API 보호 모드(${reason}): ${retryAt?.toISOString() ?? "해제 시각 미정"} 이후 재개`);

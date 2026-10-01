@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   saveDeepLinkForProduct: vi.fn(),
   cacheSearchProducts: vi.fn(),
   invalidateCachedSearchProducts: vi.fn(),
+  notifySearchQuotaExceeded: vi.fn(),
 }));
 
 vi.mock("./db", () => ({
@@ -28,6 +29,7 @@ vi.mock("./db", () => ({
   reserveSearchApiCall: mocks.reserveSearchApiCall,
 }));
 vi.mock("./coupang", () => ({ searchCoupangProducts: mocks.searchCoupangProducts }));
+vi.mock("./searchQuotaAlert", () => ({ notifySearchQuotaExceeded: mocks.notifySearchQuotaExceeded }));
 
 import { searchCatalogSafely } from "./catalogSearch";
 
@@ -184,6 +186,31 @@ describe("searchCatalogSafely global rate protection", () => {
       retryAt,
       message: `쿠팡 전체 API 보호 모드(minute-limit)로 외부 검색을 ${retryAt.toISOString()}까지 멈췄습니다.`,
     });
+    expect(mocks.recordCoupangRateLimitEvent).toHaveBeenCalledWith("search", "minute-limit", retryAt);
+  });
+  // 2026-10-01: 이 자리는 사용자 검색과 가격 추적이 함께 지나간다. 예산 보류를 호출
+  // 종류와 무관하게 "사용자 검색 한도 초과" 메일로 보내고 있어서, 가격 갱신 주기를
+  // 1분으로 올린 뒤 쿨다운이 허용하는 최대 빈도로 메일이 계속 나갔다. 가격 추적이
+  // 분당 몫을 다 쓰는 것은 설계대로 매 실행 일어나는 일이므로 장애가 아니다.
+  it("does not email a user-search outage when a price-tracking call hits its budget", async () => {
+    const retryAt = new Date("2026-08-15T17:07:00.000Z");
+    mocks.searchCoupangProducts.mockRejectedValue(new CoupangRateLimitError(retryAt, "minute-limit"));
+
+    await expect(searchCatalogSafely("녹두 클렌징폼", 10, { callType: "price-tracking" }))
+      .resolves.toMatchObject({ source: "rate_limited", retryAt });
+
+    expect(mocks.notifySearchQuotaExceeded).not.toHaveBeenCalled();
+    // 작업 기록도 "search"가 아니라 가격 작업으로 남아야 원인을 가리지 않는다.
+    expect(mocks.recordCoupangRateLimitEvent).toHaveBeenCalledWith("price", "minute-limit", retryAt);
+  });
+
+  it("still emails when a real user search is refused", async () => {
+    const retryAt = new Date("2026-08-15T17:07:00.000Z");
+    mocks.searchCoupangProducts.mockRejectedValue(new CoupangRateLimitError(retryAt, "minute-limit"));
+
+    await expect(searchCatalogSafely("녹두 클렌징폼")).resolves.toMatchObject({ source: "rate_limited" });
+
+    expect(mocks.notifySearchQuotaExceeded).toHaveBeenCalledWith({ reason: "minute-limit", retryAt });
     expect(mocks.recordCoupangRateLimitEvent).toHaveBeenCalledWith("search", "minute-limit", retryAt);
   });
 });
