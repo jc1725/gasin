@@ -26,7 +26,7 @@ import {
   webPushSubscriptions,
 } from "../drizzle/schema";
 import { getCoupangVariantKey, type CoupangProduct } from "./coupang";
-import { describeProductVariant, getProductFamilyKey, isUngroupedProductKey, resolveStoredProductGroupKey, withMergedProductGroupKey, withProductGroupKey } from "./productVariant";
+import { computeStoredUnitPrice, describeProductVariant, getProductFamilyKey, isUngroupedProductKey, resolveStoredProductGroupKey, withMergedProductGroupKey, withProductGroupKey } from "./productVariant";
 import type { ParsedCoupangLink } from "./manualLink";
 import { decideSearchQuota, SEARCH_API_MAX_CALLS_PER_MINUTE, type SearchQuotaSnapshot } from "./searchQuota";
 import { COUPANG_API_MAX_CALLS_PER_MINUTE, COUPANG_TRACKING_GLOBAL_MAX_CALLS_PER_MINUTE, COUPANG_TRACKING_MAX_CALLS_PER_MINUTE, decideCoupangRateLimit, type CoupangApiCallType, type CoupangRateLimitSnapshot } from "./coupangRateLimit";
@@ -1146,17 +1146,23 @@ export async function listMissingOptionMetadataForAdmin(limit = 200) {
 // 전혀 건드리지 않고 있어서, 라벨과 실제 숫자가 안 맞는 표시가 생기는 버그가 있었음
 // (예: "흙대파"를 자동 파싱이 "100g당 260원"으로 계산해뒀는데, 관리자가 용량을 "1kg"로
 // 고쳐 저장하면 라벨만 "1kg"로 바뀌고 unitPrice는 옛날 260이 그대로 남아 "1kg당 260원"
-// 처럼 10배 낮은 가격으로 보이던 문제). 관리자가 입력한 unitLabel은 "포장 하나 전체의
-// 용량"을 뜻하므로, 그 표기 그대로의 단가 = 현재가 ÷ 수량으로 다시 계산해 함께 저장한다.
-// unitLabel을 비우면(null) 단가 표시 자체가 의미 없으므로 unitPrice도 함께 비운다.
+// 처럼 10배 낮은 가격으로 보이던 문제).
+//
+// 2026-10-01: 그 재계산식이 `현재가 ÷ 수량`이라 용량을 아예 쓰지 않았다. 라벨만
+// "10ml당"을 붙이니 40ml짜리 6,000원 상품이 "10ml당 6,000원"(실제 1,500원)으로
+// 저장됐다. computeStoredUnitPrice는 라벨이 가리키는 기준량만큼의 가격을 내놓으므로
+// 관리자가 "1kg"처럼 포장 전체 용량을 적은 경우("1kg당 = 현재가")와 자동 파싱이
+// "10ml" 같은 정규화 기준을 넣은 경우를 모두 올바르게 다룬다.
+// 용량이나 기준을 읽지 못하면 unitPrice는 null이 되어 단가 표시가 사라진다 — 틀린
+// 단가를 보여주는 것보다 낫다.
 export async function updateAdminProductOptionMetadata(productId: number, variantLabel: string | null, unitLabel: string | null, quantity: number | null = null) {
   const db = await getDb();
   if (!db) throw new Error("Database is unavailable");
   const existing = (await db.select({ currentPrice: products.currentPrice, quantity: products.quantity, familyKey: products.familyKey, variantLabel: products.variantLabel, externalProductId: products.externalProductId })
     .from(products).where(and(eq(products.id, productId), eq(products.isActive, true))).limit(1))[0];
   const effectiveQuantity = quantity ?? existing?.quantity ?? 1;
-  const unitPrice = unitLabel && existing && effectiveQuantity > 0
-    ? Math.round(existing.currentPrice / effectiveQuantity)
+  const unitPrice = existing
+    ? computeStoredUnitPrice({ price: existing.currentPrice, variantLabel, quantity: effectiveQuantity, unitLabel })
     : null;
   const result = await db.update(products).set(withMergedProductGroupKey(existing ?? {}, { variantLabel, unitLabel, quantity, unitPrice, optionMetadataSource: "manual" as const })).where(and(eq(products.id, productId), eq(products.isActive, true)));
   return { productId, updated: getAffectedRows(result) > 0 };
@@ -1533,8 +1539,17 @@ export async function upsertCoupangProduct(product: CoupangProduct, source: Prod
     categoryName: product.categoryName ?? null,
     familyKey: getProductFamilyKey(product.productName),
     variantLabel: preserveVariantLabel ? existing!.variantLabel : variant.variantLabel,
+    // 2026-10-01: 보존된 라벨 기준으로 단가만 다시 계산할 때 `현재가 ÷ 수량`을 쓰고
+    // 있었다. 용량을 아예 쓰지 않으면서 라벨만 "10ml당"을 붙이니 40ml짜리 6,000원이
+    // "10ml당 6,000원"(실제 1,500원)으로 저장됐다. optionMetadataSource 기본값이
+    // "manual"이라 이 경로는 사실상 모든 추적 행에 걸려 있었다.
     unitPrice: preserveUnitLabel
-      ? Math.round(currentPrice / (preservedQuantity ?? 1))
+      ? computeStoredUnitPrice({
+          price: currentPrice,
+          variantLabel: preserveVariantLabel ? existing!.variantLabel : variant.variantLabel,
+          quantity: preservedQuantity,
+          unitLabel: existing!.unitLabel,
+        })
       : variant.unitPrice,
     unitLabel: preserveUnitLabel ? existing!.unitLabel : variant.unitLabel,
     quantity: preservedQuantity,

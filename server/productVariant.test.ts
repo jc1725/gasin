@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildProductGroupKey, describeProductVariant, getProductFamilyKey, getProductGroupKey, isUngroupedProductKey, PRODUCT_GROUP_KEY_MAX_LENGTH, resolveStoredProductGroupKey } from "./productVariant";
+import { buildProductGroupKey, computeStoredUnitPrice, describeProductVariant, getProductFamilyKey, getProductGroupKey, isUngroupedProductKey, PRODUCT_GROUP_KEY_MAX_LENGTH, parseUnitLabelBasis, resolveStoredProductGroupKey } from "./productVariant";
 
 describe("describeProductVariant", () => {
   it("keeps a beauty product's capacity and quantity separate and calculates price per 10ml", () => {
@@ -162,5 +162,54 @@ describe("'+'로 이어진 기획 구성의 용량", () => {
     // 80ml 낱개 상품과 같은 그룹으로 묶이면 안 된다.
     const single = "비플레인 녹두 약산성 클렌징폼 80ml";
     expect(key).not.toBe(buildProductGroupKey(getProductFamilyKey(single), describeProductVariant(single, 8_330, "뷰티")));
+  });
+});
+
+// 2026-10-01: 저장 경로 두 곳이 단가를 `현재가 ÷ 수량`으로 계산하고 있었다. 용량을
+// 아예 쓰지 않으면서 라벨만 "10ml당"을 붙여서, 운영 DB에 40ml짜리 6,000원 상품이
+// "10ml당 6,000원"(실제 1,500원)으로 저장돼 있었다. 수량만 다른 묶음이 전부 같은
+// 단가로 찍히는 것도 같은 원인이다(2개 38,600원·3개 57,900원이 모두 "10ml당 19,300원").
+describe("computeStoredUnitPrice", () => {
+  it("라벨이 가리키는 기준량만큼의 가격을 내놓는다", () => {
+    // 운영 DB 실제 행: 40ml · 6,000원.
+    expect(computeStoredUnitPrice({ price: 6_000, variantLabel: "40ml × 1개", quantity: 1, unitLabel: "10ml" })).toBe(1_500);
+    expect(computeStoredUnitPrice({ price: 19_300, variantLabel: "200ml × 1세트", quantity: 1, unitLabel: "10ml" })).toBe(965);
+  });
+
+  it("수량이 늘면 총량도 늘어 단가는 그대로다", () => {
+    const one = computeStoredUnitPrice({ price: 19_300, variantLabel: "80ml", quantity: 1, unitLabel: "10ml" });
+    const five = computeStoredUnitPrice({ price: 96_500, variantLabel: "80ml", quantity: 5, unitLabel: "10ml" });
+    expect(one).toBe(2_413);
+    expect(five).toBe(one);
+  });
+
+  it("관리자가 포장 전체 용량을 라벨로 적은 경우도 그대로 맞는다", () => {
+    // "1kg당"이면 1kg짜리 상품의 단가는 현재가 그대로여야 한다.
+    expect(computeStoredUnitPrice({ price: 9_000, variantLabel: "1kg", quantity: 1, unitLabel: "1kg" })).toBe(9_000);
+    // 같은 "1kg당" 라벨에 500g짜리면 1kg 환산 가격은 두 배다.
+    expect(computeStoredUnitPrice({ price: 9_000, variantLabel: "500g", quantity: 1, unitLabel: "1kg" })).toBe(18_000);
+  });
+
+  it("기준을 읽을 수 없거나 부피·무게가 어긋나면 단가를 비운다", () => {
+    // 틀린 단가를 보여주는 것보다 숨기는 쪽이 낫다.
+    expect(computeStoredUnitPrice({ price: 9_000, variantLabel: "500g", quantity: 1, unitLabel: "10ml" })).toBeNull();
+    expect(computeStoredUnitPrice({ price: 9_000, variantLabel: null, quantity: 1, unitLabel: "10ml" })).toBeNull();
+    expect(computeStoredUnitPrice({ price: 9_000, variantLabel: "80ml", quantity: 1, unitLabel: null })).toBeNull();
+    expect(computeStoredUnitPrice({ price: 0, variantLabel: "80ml", quantity: 1, unitLabel: "10ml" })).toBeNull();
+  });
+
+  it("parseUnitLabelBasis가 kg·L을 환산 기준으로 읽는다", () => {
+    expect(parseUnitLabelBasis("10ml")).toEqual({ base: 10, measureUnit: "ml" });
+    expect(parseUnitLabelBasis("100g")).toEqual({ base: 100, measureUnit: "g" });
+    expect(parseUnitLabelBasis("1kg")).toEqual({ base: 1_000, measureUnit: "g" });
+    expect(parseUnitLabelBasis(null)).toBeNull();
+  });
+
+  it("자동 파싱 결과와 같은 값을 내놓는다", () => {
+    const name = "비플레인 녹두 약산성 클렌징폼, 80ml, 1개";
+    const variant = describeProductVariant(name, 8_820, "뷰티");
+    expect(computeStoredUnitPrice({
+      price: 8_820, variantLabel: variant.variantLabel, quantity: variant.quantity, unitLabel: variant.unitLabel,
+    })).toBe(variant.unitPrice);
   });
 });

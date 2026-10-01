@@ -202,6 +202,56 @@ export function parseVariantLabelMeasure(variantLabel: string | null | undefined
 }
 
 /**
+ * "10ml", "100g", "1kg" 같은 단가 기준 표기에서 환산 기준값과 단위를 읽는다.
+ * "1kg당"이면 1000g 기준이라는 뜻이다.
+ */
+export function parseUnitLabelBasis(unitLabel: string | null | undefined) {
+  if (!unitLabel) return null;
+  const match = Array.from(unitLabel.matchAll(SIZE_PATTERN)).at(0);
+  if (!match?.[1] || !match[2]) return null;
+  const normalized = normalizeSize(normalizeNumber(match[1]), match[2], 100);
+  if (!Number.isFinite(normalized.amount) || normalized.amount <= 0) return null;
+  return { base: roundMeasure(normalized.amount), measureUnit: normalized.measureUnit };
+}
+
+/**
+ * 저장된 옵션 값으로 단가를 계산한다.
+ *
+ * 2026-10-01: 저장 경로 두 곳이 단가를 `현재가 ÷ 수량`으로 계산하고 있었다. 용량을
+ * 아예 쓰지 않으면서 라벨만 "10ml당"을 붙이니, 40ml짜리 6,000원 상품이 "10ml당
+ * 6,000원"(실제 1,500원)으로 저장됐다. 수량만 다른 묶음들이 전부 같은 단가로 찍히는
+ * 것도 같은 원인이다(2개 38,600원·3개 57,900원이 모두 "10ml당 19,300원").
+ *
+ * unitLabel은 두 가지 뜻으로 쓰인다 — 자동 파싱이 넣는 정규화 기준("10ml"/"100g")과,
+ * 관리자가 "포장 하나 전체 용량"으로 직접 타이핑한 값("1kg"). 이 식은 둘 다 올바르게
+ * 다룬다. 라벨이 가리키는 기준량만큼의 가격을 내놓기 때문이다. unitLabel "80ml",
+ * 용량 80ml이면 "80ml당 = 현재가" 그대로가 되고, unitLabel "10ml", 용량 40ml이면
+ * 현재가의 1/4이 된다.
+ *
+ * 용량이나 기준을 읽지 못하면 null을 돌려준다. 틀린 단가를 보여주는 것보다 단가를
+ * 숨기는 쪽이 낫다 — 사용자가 상품을 고르는 데 직접 쓰는 숫자다.
+ */
+export function computeStoredUnitPrice(input: {
+  price: number | null | undefined;
+  variantLabel: string | null | undefined;
+  quantity: number | null | undefined;
+  unitLabel: string | null | undefined;
+}) {
+  const price = input.price;
+  if (!price || !Number.isFinite(price) || price <= 0) return null;
+  const basis = parseUnitLabelBasis(input.unitLabel);
+  if (!basis) return null;
+  const measure = parseVariantLabelMeasure(input.variantLabel ?? null);
+  if (!measure.sizeAmount || !measure.measureUnit) return null;
+  // 부피 기준 라벨에 무게 용량을 나누는 식의 짝 어긋남을 막는다.
+  if (measure.measureUnit !== basis.measureUnit) return null;
+  const quantity = input.quantity && input.quantity > 0 ? input.quantity : 1;
+  const totalAmount = measure.sizeAmount * quantity;
+  if (!(totalAmount > 0)) return null;
+  return Math.round((price * basis.base) / totalAmount);
+}
+
+/**
  * 실제로 DB에 저장된 값(familyKey · variantLabel · quantity)만으로 그룹키를 만든다.
  * 모든 저장 경로(공식 API upsert, 수집기, 관리자 수동 수정, 백필)가 이 한 함수를 쓰기
  * 때문에 경로마다 그룹키가 달라지는 일이 생기지 않는다.

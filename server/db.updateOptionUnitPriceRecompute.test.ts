@@ -19,8 +19,12 @@ describe("관리자 옵션 수정 시 unitPrice(단위가격) 재계산", () => 
     expect(body).toContain("currentPrice: products.currentPrice");
     expect(body).toContain("quantity: products.quantity");
 
-    // unitLabel이 있을 때만 unitPrice를 계산하고, 없으면(라벨을 지운 경우) 함께 비운다.
-    expect(body).toContain("unitLabel && existing");
+    // 2026-10-01: 재계산식이 `현재가 ÷ 수량`이라 용량을 아예 쓰지 않았다. 라벨만
+    // "10ml당"을 붙이니 40ml짜리 6,000원 상품이 "10ml당 6,000원"(실제 1,500원)으로
+    // 저장됐다. 용량까지 보는 공용 계산식을 쓴다.
+    expect(body).toContain("computeStoredUnitPrice(");
+    expect(body).not.toMatch(/currentPrice\s*\/\s*effectiveQuantity/);
+    // 라벨이나 용량을 읽을 수 없으면 단가를 비운다(틀린 단가보다 낫다).
     expect(body).toContain(": null");
 
     // 재계산된 unitPrice가 실제로 update 대상에 포함되어야 한다 — 예전엔 unitLabel만
@@ -29,5 +33,25 @@ describe("관리자 옵션 수정 시 unitPrice(단위가격) 재계산", () => 
     // 래퍼 이름까지 함께 확인해서, 갱신 객체가 그룹키 계산을 건너뛰고 .set()으로 바로
     // 들어가는 회귀도 같이 잡는다.
     expect(body).toMatch(/\.set\(withMergedProductGroupKey\([^;]*unitPrice[^;]*\)\)/);
+  });
+});
+
+// 2026-10-01: 같은 잘못된 식(`현재가 ÷ 수량`)이 공식 API upsert 경로에도 있었다.
+// optionMetadataSource 기본값이 "manual"이라 보존 분기가 사실상 모든 추적 행에 걸려
+// 있었고, 가격이 갱신될 때마다 용량을 무시한 단가로 덮어쓰고 있었다.
+describe("upsert 보존 분기의 unitPrice 재계산", () => {
+  const body = readFileSync(join(process.cwd(), "server/db.ts"), "utf8");
+
+  it("라벨을 보존할 때도 용량까지 보는 공용 계산식을 쓴다", () => {
+    const anchor = body.indexOf("unitPrice: preserveUnitLabel");
+    expect(anchor).toBeGreaterThan(-1);
+    const scoped = body.slice(anchor, anchor + 600);
+    expect(scoped).toContain("computeStoredUnitPrice(");
+    expect(scoped).not.toMatch(/currentPrice\s*\/\s*\(preservedQuantity/);
+  });
+
+  it("db.ts 어디에도 수량만으로 나누는 단가 계산이 남아 있지 않다", () => {
+    expect(body).not.toMatch(/Math\.round\(\s*currentPrice\s*\/\s*\(?\s*(?:preservedQuantity|effectiveQuantity)/);
+    expect(body).not.toMatch(/Math\.round\(\s*existing\.currentPrice\s*\/\s*effectiveQuantity/);
   });
 });
