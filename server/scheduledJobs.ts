@@ -459,10 +459,20 @@ export async function removeExpiredPriceHistory() {
     // 가격 이력보다 짧은 30일을 쓴다(server/db.ts의 SYNC_RUN_RETENTION_DAYS).
     const syncRunExpiry = new Date(Date.now() - db.SYNC_RUN_RETENTION_DAYS * 24 * 60 * 60 * 1000);
     const syncRunsDeleted = await db.pruneSyncRuns(syncRunExpiry);
+    // 2026-10-01 리뉴얼 2단계: 착한경유 클릭 기록도 약 13개월(GOOD_VIA_RETENTION_DAYS) 지나면
+    // 지운다. 이 테이블은 수동 마이그레이션(drizzle/0042)이라 적용 전에는 쿼리가 실패할 수
+    // 있으므로, 이 정리가 실패해도 나머지 보존 작업과 완료 표시는 그대로 진행한다.
+    let goodViaDeleted = 0;
+    try {
+      const goodViaExpiry = new Date(Date.now() - db.GOOD_VIA_RETENTION_DAYS * 24 * 60 * 60 * 1000);
+      goodViaDeleted = await db.pruneGoodViaEvents(goodViaExpiry);
+    } catch (error) {
+      console.warn("[Retention] 착한경유 클릭 기록 정리를 건너뜁니다:", error instanceof Error ? error.message : error);
+    }
     await db.markScheduleCompleted("retention");
     return {
-      processedCount: officialDeleted + collectedDeleted + supersededDeleted + syncRunsDeleted,
-      detail: `90일 이전 가격 이력 ${officialDeleted}건과 외부 수집 이력 ${collectedDeleted}건, 이관·병합·골드박스 탈락으로 90일 넘게 비활성 상태인 상품 ${supersededDeleted}개를 정리했습니다. ${db.SYNC_RUN_RETENTION_DAYS}일 이전 작업 실행 기록 ${syncRunsDeleted}건도 함께 정리했습니다.`,
+      processedCount: officialDeleted + collectedDeleted + supersededDeleted + syncRunsDeleted + goodViaDeleted,
+      detail: `90일 이전 가격 이력 ${officialDeleted}건과 외부 수집 이력 ${collectedDeleted}건, 이관·병합·골드박스 탈락으로 90일 넘게 비활성 상태인 상품 ${supersededDeleted}개를 정리했습니다. ${db.SYNC_RUN_RETENTION_DAYS}일 이전 작업 실행 기록 ${syncRunsDeleted}건, 보존 기간이 지난 착한경유 클릭 기록 ${goodViaDeleted}건도 함께 정리했습니다.`,
     } satisfies JobOutcome;
   });
 }

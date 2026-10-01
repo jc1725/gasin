@@ -1,6 +1,7 @@
 import { COOKIE_NAME, isAdminEmail } from "@shared/const";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
+import { recordGoodViaFromRequest } from "./goodVia";
 import {
   getProductCandidateForUser,
   getPublicServiceStats,
@@ -253,6 +254,12 @@ export const appRouter = router({
       .input(z.object({ query: z.string().trim().max(80), limit: z.number().int().min(1).max(8).optional() }))
       .query(({ input }) => listSearchSuggestions(input.query, input.limit)),
     searchStatus: publicProcedure.query(() => getSearchApiQuotaStatus()),
+  }),
+  // 2026-10-01 리뉴얼 2단계: 착한경유(쿠팡 이동) 클릭 기록. 실패해도 이동을 막지 않는다.
+  goodVia: router({
+    record: publicProcedure
+      .input(z.object({ productId: z.number().int().positive() }).strict())
+      .mutation(({ ctx, input }) => recordGoodViaFromRequest({ req: ctx.req, userId: ctx.user?.id ?? null, productId: input.productId, source: "product" })),
   }),
   siteStats: router({
     public: publicProcedure.query(() => getPublicServiceStats()),

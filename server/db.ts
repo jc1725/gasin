@@ -4,6 +4,7 @@ import {
   categoryBestProducts,
   collectedPriceHistory,
   favorites,
+  goodViaEvents,
   googleDriveConnections,
   InsertUser,
   manualLinkTracks,
@@ -3454,6 +3455,42 @@ export async function pruneSyncRuns(before: Date, maxChunks = 20) {
     const result = await db
       .delete(syncRuns)
       .where(lt(syncRuns.startedAt, before))
+      .limit(SYNC_RUN_PRUNE_CHUNK_SIZE);
+    const affected = getAffectedRows(result);
+    deleted += affected;
+    if (affected < SYNC_RUN_PRUNE_CHUNK_SIZE) break;
+  }
+  return deleted;
+}
+
+// ============================================================
+// 2026-10-01 리뉴얼 2단계: 착한경유(쿠팡 이동) 클릭 기록
+// ------------------------------------------------------------
+/** 착한경유 클릭 기록 보존 기간(약 13개월). 회원 화면은 "이번 달"만 쓰고, 그 이상은 지운다. */
+export const GOOD_VIA_RETENTION_DAYS = 395;
+
+/**
+ * 이동 버튼 클릭 1건을 남긴다. 회원은 (userId, productId, dayKey) 유니크라 같은 날 같은
+ * 상품은 한 번만 남고, 중복은 조용히 무시한다(ON DUPLICATE KEY UPDATE로 기존 값 유지).
+ */
+export async function recordGoodViaClick(input: { userId: number | null; productId: number; source: "product" | "url"; dayKey: string; createdAt: Date }) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is unavailable");
+  await db
+    .insert(goodViaEvents)
+    .values({ userId: input.userId, productId: input.productId, source: input.source, dayKey: input.dayKey, createdAt: input.createdAt })
+    .onDuplicateKeyUpdate({ set: { dayKey: sql`${goodViaEvents.dayKey}` } });
+}
+
+/** 보존 기간이 지난 착한경유 클릭 기록을 나눠서 지운다(pruneSyncRuns와 같은 방식). */
+export async function pruneGoodViaEvents(before: Date, maxChunks = 20) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is unavailable");
+  let deleted = 0;
+  for (let chunk = 0; chunk < maxChunks; chunk += 1) {
+    const result = await db
+      .delete(goodViaEvents)
+      .where(lt(goodViaEvents.createdAt, before))
       .limit(SYNC_RUN_PRUNE_CHUNK_SIZE);
     const affected = getAffectedRows(result);
     deleted += affected;

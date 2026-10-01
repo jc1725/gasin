@@ -189,6 +189,29 @@ export const favorites = mysqlTable(
   ]
 );
 
+// 2026-10-01 리뉴얼 2단계: 착한경유(가신 → 쿠팡 이동) 클릭 기록. 구매·수익과 연결하지 않고
+// "이동 버튼을 누른 횟수"로만 쓴다. 회원은 (userId, productId, dayKey) 유니크로 하루 1회만
+// 남고, 비로그인은 userId가 null이라 유니크에 걸리지 않아 집계용으로만 쌓인다. IP·UA는
+// 저장하지 않는다. dayKey는 한국 시간 날짜(YYYY-MM-DD). 클릭 수는 쿠팡 파트너스 운영정책
+// 4.1 4)상 공개 불가 정보와 성격이 같아, 회원 본인 화면 외에는 공개하지 않는다.
+export const goodViaEvents = mysqlTable(
+  "goodViaEvents",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    userId: int("userId").references(() => users.id, { onDelete: "set null" }),
+    productId: int("productId").references(() => products.id, { onDelete: "set null" }),
+    source: mysqlEnum("source", ["product", "url"]).default("product").notNull(),
+    dayKey: varchar("dayKey", { length: 10 }).notNull(),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  table => [
+    uniqueIndex("goodViaEvents_user_product_day_unique").on(table.userId, table.productId, table.dayKey),
+    index("goodViaEvents_createdAt_idx").on(table.createdAt),
+    index("goodViaEvents_user_createdAt_idx").on(table.userId, table.createdAt),
+    index("goodViaEvents_product_createdAt_idx").on(table.productId, table.createdAt),
+  ]
+);
+
 export const priceAlertLogs = mysqlTable(
   "priceAlertLogs",
   {
