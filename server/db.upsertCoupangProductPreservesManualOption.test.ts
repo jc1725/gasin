@@ -11,7 +11,10 @@ describe("공식 Coupang Partners API upsert — 기존 옵션(관리자 수동 
     expect(body).toContain('existing?.optionMetadataSource === "manual"');
     expect(body).toContain("preserveVariantLabel ? existing!.variantLabel : variant.variantLabel");
     expect(body).toContain("preserveUnitLabel ? existing!.unitLabel : variant.unitLabel");
-    expect(body).toMatch(/preserveUnitLabel\s*\n?\s*\? Math\.round\(currentPrice \/ \(preservedQuantity \?\? 1\)\)/);
+    // 2026-10-01: 예전엔 price ÷ quantity 로 단가를 재계산했지만, unitLabel 기준(10ml/100g
+    // 또는 관리자 "전체 용량")을 무시해 단가가 틀어졌다. 이제 computeStoredUnitPrice로 계산한다.
+    expect(body).toMatch(/preserveUnitLabel\s*\n?\s*\? computeStoredUnitPrice\(/);
+    expect(body).not.toContain("Math.round(currentPrice / (preservedQuantity ?? 1))");
   });
 
   it("수집기(가신 확장 프로그램)가 채운 옵션 정보(optionMetadataSource==='collection')도 보존한다", () => {
