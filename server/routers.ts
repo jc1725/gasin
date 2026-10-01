@@ -1,7 +1,7 @@
 import { COOKIE_NAME, isAdminEmail } from "@shared/const";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { recordGoodViaFromRequest } from "./goodVia";
+import { getMyGoodViaMonth, recordGoodViaFromRequest } from "./goodVia";
 import {
   getProductCandidateForUser,
   getPublicServiceStats,
@@ -260,6 +260,8 @@ export const appRouter = router({
     record: publicProcedure
       .input(z.object({ productId: z.number().int().positive() }).strict())
       .mutation(({ ctx, input }) => recordGoodViaFromRequest({ req: ctx.req, userId: ctx.user?.id ?? null, productId: input.productId, source: "product" })),
+    // 2026-10-01 리뉴얼 4단계: 회원 본인의 이번 달 이동 횟수(본인 화면 전용, 금액 없음).
+    myMonth: protectedProcedure.query(({ ctx }) => getMyGoodViaMonth(ctx.user.id)),
   }),
   siteStats: router({
     public: publicProcedure.query(() => getPublicServiceStats()),

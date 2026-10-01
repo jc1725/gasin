@@ -1,10 +1,10 @@
 import { readFileSync } from "node:fs";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { recordGoodViaClick } = vi.hoisted(() => ({ recordGoodViaClick: vi.fn() }));
-vi.mock("./db", () => ({ recordGoodViaClick }));
+const { recordGoodViaClick, countGoodViaEventsForUser } = vi.hoisted(() => ({ recordGoodViaClick: vi.fn(), countGoodViaEventsForUser: vi.fn() }));
+vi.mock("./db", () => ({ recordGoodViaClick, countGoodViaEventsForUser }));
 
-import { GOOD_VIA_RATE_MAX_PER_WINDOW, GOOD_VIA_RATE_WINDOW_MS, allowGoodViaRecord, recordGoodViaFromRequest, resetGoodViaRateLimit, toKstDayKey } from "./goodVia";
+import { GOOD_VIA_RATE_MAX_PER_WINDOW, GOOD_VIA_RATE_WINDOW_MS, allowGoodViaRecord, getMyGoodViaMonth, kstMonthRange, recordGoodViaFromRequest, resetGoodViaRateLimit, toKstDayKey } from "./goodVia";
 
 const req = (ip: string) => ({ headers: { "x-forwarded-for": `${ip}, 10.0.0.1` }, socket: { remoteAddress: "10.0.0.2" } }) as never;
 
@@ -55,5 +55,29 @@ describe("착한경유 클릭 기록 (리뉴얼 2단계)", () => {
     expect(detail).toContain("{GIVE_PROMISE}");
     expect(detail).toContain("{PARTNERS_DISCLOSURE}");
     expect(detail).not.toContain("착한경유로 쿠팡 가기");
+  });
+
+  it("나의 착한경유: 이번 달 범위는 한국 시간 기준이고 12월은 다음 해 1월 1일까지다", () => {
+    expect(kstMonthRange(new Date("2026-09-30T14:59:59Z"))).toEqual({ month: "2026-09", fromDayKey: "2026-09-01", toDayKey: "2026-10-01" });
+    expect(kstMonthRange(new Date("2026-09-30T15:00:00Z"))).toEqual({ month: "2026-10", fromDayKey: "2026-10-01", toDayKey: "2026-11-01" });
+    expect(kstMonthRange(new Date("2026-12-15T00:00:00Z"))).toEqual({ month: "2026-12", fromDayKey: "2026-12-01", toDayKey: "2027-01-01" });
+  });
+
+  it("나의 착한경유: 본인 userId로만 세고, 조회 실패 시 0회가 아니라 available=false로 알린다", async () => {
+    countGoodViaEventsForUser.mockResolvedValueOnce(7);
+    await expect(getMyGoodViaMonth(42, new Date("2026-10-01T03:00:00Z"))).resolves.toEqual({ month: "2026-10", moveCount: 7, available: true });
+    expect(countGoodViaEventsForUser).toHaveBeenCalledWith(42, "2026-10-01", "2026-11-01");
+    countGoodViaEventsForUser.mockRejectedValueOnce(new Error("boom"));
+    await expect(getMyGoodViaMonth(42, new Date("2026-10-01T03:00:00Z"))).resolves.toEqual({ month: "2026-10", moveCount: 0, available: false });
+  });
+
+  it("나의 착한경유 카드는 /favorites에만 있고 금액을 표시하지 않는다", () => {
+    const favorites = readFileSync(new URL("../client/src/pages/Favorites.tsx", import.meta.url), "utf8");
+    const card = readFileSync(new URL("../client/src/components/MyGoodViaCard.tsx", import.meta.url), "utf8");
+    const home = readFileSync(new URL("../client/src/pages/Home.tsx", import.meta.url), "utf8");
+    expect(favorites).toContain("trpc.goodVia.myMonth.useQuery(undefined, { enabled: isGoogleUser })");
+    expect(favorites).toContain("<MyGoodViaCard");
+    expect(home).not.toContain("MyGoodViaCard");
+    expect(card).not.toMatch(/\d+원|기부했|기부금액|기부 금액은 \{/);
   });
 });

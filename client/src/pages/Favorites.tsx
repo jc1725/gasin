@@ -1,6 +1,7 @@
 import { BellRing, Heart, LogIn } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
+import MyGoodViaCard from "@/components/MyGoodViaCard";
 import ProductCard from "@/components/ProductCard";
 import { useFavorites } from "@/hooks/useFavorites";
 import { trpc } from "@/lib/trpc";
@@ -10,6 +11,8 @@ export default function Favorites() {
   const utils = trpc.useUtils();
   const { data: targetPriceSettings } = trpc.favorites.listTargetPrices.useQuery(undefined, { enabled: isGoogleUser });
   const { data: alertObservationStatuses } = trpc.favorites.alertObservationStatus.useQuery(undefined, { enabled: isGoogleUser });
+  // 2026-10-01 리뉴얼 4단계: 나의 착한경유(본인 이동 횟수·목표가 알림 수, 금액 없음).
+  const { data: myGoodVia } = trpc.goodVia.myMonth.useQuery(undefined, { enabled: isGoogleUser });
   const [editingTargetProductId, setEditingTargetProductId] = useState<number | null>(null);
   const [targetPriceDraft, setTargetPriceDraft] = useState("");
   const targetPriceMutation = trpc.favorites.setTargetPrice.useMutation({
@@ -60,6 +63,7 @@ export default function Favorites() {
           <p className="text-sm font-bold text-[#176b3a]">찜하면 이메일 또는 앱 알림으로 알려드립니다.</p>
         </div>
       </div>
+      <MyGoodViaCard month={myGoodVia?.month} moveCount={myGoodVia?.moveCount} available={myGoodVia?.available ?? true} alertCount={targetPriceSettings ? targetPriceSettings.filter(setting => setting.targetPrice !== null).length : undefined} />
       {favoritesLoading ? <p className="py-16 text-center text-sm text-[#829184]">찜한상품을 불러오는 중입니다.</p> : null}
       {!favoritesLoading && favoriteProducts.length === 0 ? <p className="rounded-2xl bg-white py-16 text-center text-sm text-[#829184]">아직 찜한상품이 없습니다.</p> : null}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">

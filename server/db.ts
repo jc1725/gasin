@@ -3482,6 +3482,21 @@ export async function recordGoodViaClick(input: { userId: number | null; product
     .onDuplicateKeyUpdate({ set: { dayKey: sql`${goodViaEvents.dayKey}` } });
 }
 
+/**
+ * 2026-10-01 리뉴얼 4단계: 회원 본인의 착한경유 이동 횟수. dayKey(KST 날짜 문자열)가
+ * [fromDayKey, toDayKey) 범위인 행 수다. (userId, productId, dayKey) 유니크라 "하루 한 상품 1회"로
+ * 센 값이다. 클릭 수는 운영정책상 공개 불가 정보와 성격이 같아 본인 화면에만 쓴다.
+ */
+export async function countGoodViaEventsForUser(userId: number, fromDayKey: string, toDayKey: string) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is unavailable");
+  const [row] = await db
+    .select({ count: sql<number>`COUNT(*)` })
+    .from(goodViaEvents)
+    .where(and(eq(goodViaEvents.userId, userId), gte(goodViaEvents.dayKey, fromDayKey), lt(goodViaEvents.dayKey, toDayKey)));
+  return Number(row?.count ?? 0);
+}
+
 /** 보존 기간이 지난 착한경유 클릭 기록을 나눠서 지운다(pruneSyncRuns와 같은 방식). */
 export async function pruneGoodViaEvents(before: Date, maxChunks = 20) {
   const db = await getDb();

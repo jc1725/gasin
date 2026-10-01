@@ -68,3 +68,36 @@ export async function recordGoodViaFromRequest(input: {
     return { recorded: false, reason: "error" };
   }
 }
+
+// ============================================================
+// 2026-10-01 리뉴얼 4단계: 나의 착한경유(회원 본인 화면 전용)
+// ------------------------------------------------------------
+// 개인별 구매·수익 귀속을 알 수 없으므로 금액은 절대 계산하지 않고 이동 횟수만 돌려준다.
+
+/** 한국 시간 기준 이번 달의 dayKey 범위 [from, to)와 표시용 월(YYYY-MM). */
+export function kstMonthRange(now: Date) {
+  const today = toKstDayKey(now);
+  const year = Number(today.slice(0, 4));
+  const month = Number(today.slice(5, 7));
+  const nextYear = month === 12 ? year + 1 : year;
+  const nextMonth = month === 12 ? 1 : month + 1;
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return {
+    month: `${year}-${pad(month)}`,
+    fromDayKey: `${year}-${pad(month)}-01`,
+    toDayKey: `${nextYear}-${pad(nextMonth)}-01`,
+  };
+}
+
+export type MyGoodViaMonth = { month: string; moveCount: number; available: boolean };
+
+export async function getMyGoodViaMonth(userId: number, now = new Date()): Promise<MyGoodViaMonth> {
+  const range = kstMonthRange(now);
+  try {
+    const moveCount = await db.countGoodViaEventsForUser(userId, range.fromDayKey, range.toDayKey);
+    return { month: range.month, moveCount, available: true };
+  } catch (error) {
+    console.warn("[GoodVia] 이번 달 이동 횟수 조회 실패:", error instanceof Error ? error.message : error);
+    return { month: range.month, moveCount: 0, available: false };
+  }
+}
