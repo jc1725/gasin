@@ -23,6 +23,10 @@ fillWhenMissing("APP_BASE_URL", "https://gasin.shop");
 fillWhenMissing("GASYN_COLLECT_TOKEN", `test-collect-${randomBytes(8).toString("hex")}`);
 fillWhenMissing("GASYN_EXTERNAL_SCHEDULE_TOKEN", `test-schedule-${randomBytes(8).toString("hex")}`);
 fillWhenMissing("JWT_SECRET", randomBytes(32).toString("hex"));
+// 2026-10-01: 세션 토큰에는 appId(VITE_APP_ID)가 함께 서명되고, verifySession은 이 값이
+// 비어 있으면 토큰을 거부한다("[Auth] Session payload missing required fields"). 이 값이
+// 없으면 로그인 세션이 필요한 테스트가 전부 "비로그인"으로 떨어진다(정지 회원 안내 등).
+fillWhenMissing("VITE_APP_ID", "gasyn-test-app");
 
 // 카카오·Gmail은 실제 서버에 접속해 자격증명을 검증하는 테스트가 따로 있다. 더미 값을
 // 채웠다는 사실을 표시해 두면 그 테스트들이 스스로 건너뛴다(아래 test.ts들 참고).
