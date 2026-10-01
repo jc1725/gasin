@@ -22,9 +22,10 @@ export function allowGoodViaRecord(key: string, now = Date.now()) {
   const bucket = buckets.get(key);
   if (!bucket || now - bucket.windowStart >= GOOD_VIA_RATE_WINDOW_MS) {
     if (buckets.size >= MAX_TRACKED_KEYS) {
-      for (const [storedKey, stored] of buckets) {
+      // tsconfig 타깃이 Map 직접 순회(for...of)를 허용하지 않아 forEach를 쓴다.
+      buckets.forEach((stored, storedKey) => {
         if (now - stored.windowStart >= GOOD_VIA_RATE_WINDOW_MS) buckets.delete(storedKey);
-      }
+      });
       if (buckets.size >= MAX_TRACKED_KEYS) return false;
     }
     buckets.set(key, { windowStart: now, count: 1 });
