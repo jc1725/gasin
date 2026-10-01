@@ -26,10 +26,10 @@ describe("상품 카드 — 오래된 데이터에는 '최저가' 배지를 붙�
     expect(source).not.toContain("const isLowest = hasRecordedPrice && product.currentPrice === product.lowestPrice;");
   });
 
-  it("품절이 아니면서 오래된 상품에는 '최저가' 대신 '마지막 확인 {날짜}'를 보여준다", () => {
-    expect(source).toContain(
-      '{product.inStock === false ? <span className="mb-0.5 text-[10px] font-bold text-[#646b66]">품절</span> : isStale && lastSeenAt ? (',
-    );
-    expect(source).toContain("마지막 확인 {lastSeenAt.toLocaleDateString(\"ko-KR\", { month: \"numeric\", day: \"numeric\" })}");
+  // 2026-10-01: "마지막 확인 {날짜}"는 사용자에게 보일 필요가 없다는 요청으로 표시하지 않는다.
+  // 오래된 상품은 isLowest가 false라 "최저가" 배지 대신 "최저 N원"이 나온다.
+  it("'마지막 확인 {날짜}'를 사용자에게 보여주지 않는다", () => {
+    expect(source).not.toContain("마지막 확인 {");
+    expect(source).toContain('{product.inStock === false ? <span className="mb-0.5 text-[10px] font-bold text-[#646b66]">품절</span> : isLowest ? (');
   });
 });

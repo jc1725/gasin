@@ -66,7 +66,7 @@ export default function ProductCard({
   // 2026-09-17: "최저가" 배지가 마지막 확인 시각과 무관하게 currentPrice===lowestPrice
   // 조건만으로 붙어서, 수집이 며칠째 멈춘 상품도 계속 "최저가"로 보이는 문제가 있었다.
   // 찜한상품 알림에서 이미 쓰고 있는 "7일 지나면 신선하지 않음" 기준을 그대로 재사용해,
-  // 7일 넘게 확인이 안 된 상품은 "최저가" 대신 "마지막 확인 {날짜}"를 보여준다.
+  // 7일 넘게 확인이 안 된 상품은 "최저가" 배지를 붙이지 않는다(2026-10-01부터 날짜는 표시하지 않음).
   const STALE_THRESHOLD_MS = 7 * 24 * 60 * 60 * 1000;
   const lastSeenAt = product.lastSeenAt ? new Date(product.lastSeenAt) : null;
   const isStale = Boolean(lastSeenAt && !Number.isNaN(lastSeenAt.getTime()) && Date.now() - lastSeenAt.getTime() > STALE_THRESHOLD_MS);
@@ -103,9 +103,8 @@ export default function ProductCard({
       {compositionLabel || metaTags.packSize ? <div className="mt-2 flex flex-wrap gap-1.5">{compositionLabel ? <span className="rounded-full bg-[#e7f3e9] px-2 py-1 text-[10px] font-bold text-[#176b3a]">{compositionLabel}</span> : null}{metaTags.packSize ? <span className="rounded-full bg-[#fff3df] px-2 py-1 text-[10px] font-bold text-[#9a6415]">포장 {metaTags.packSize}</span> : null}</div> : null}
       <div className="mt-2 flex items-end justify-between gap-1">
         <strong className="text-[16px] tracking-[-0.045em] text-[#132018]">{!hasRecordedPrice ? "가격 정보 없음" : product.inStock === false ? `마지막 ${won(product.currentPrice)}` : won(product.currentPrice)}</strong>
-        {product.inStock === false ? <span className="mb-0.5 text-[10px] font-bold text-[#646b66]">품절</span> : isStale && lastSeenAt ? (
-          <span className="mb-0.5 text-[10px] font-medium text-[#a15e42]">마지막 확인 {lastSeenAt.toLocaleDateString("ko-KR", { month: "numeric", day: "numeric" })}</span>
-        ) : isLowest ? (
+        {/* 2026-10-01: "마지막 확인 {날짜}"는 사용자에게 필요 없는 내부 정보라 숨긴다(인환님 요청). 오래된 상품은 isLowest가 false라 "최저가" 배지 대신 "최저 N원"이 나온다. */}
+        {product.inStock === false ? <span className="mb-0.5 text-[10px] font-bold text-[#646b66]">품절</span> : isLowest ? (
           <span className="mb-0.5 inline-flex items-center gap-0.5 text-[10px] font-bold text-[#118245]"><Sparkles className="size-3" />최저가</span>
         ) : hasRecordedPrice ? (
           <span className="mb-0.5 text-[10px] font-medium text-[#8b978d]">최저 {won(product.lowestPrice)}</span>
