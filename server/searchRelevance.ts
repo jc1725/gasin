@@ -3,6 +3,8 @@ export type SearchableProduct = {
   productName?: string;
   externalProductId?: string;
   variantLabel?: string | null;
+  unitLabel?: string | null;
+  quantity?: number | null;
   currentPrice?: number;
   price?: number;
   isRocket?: boolean;
@@ -59,6 +61,64 @@ function matchesSearchToken(token: string, name: string) {
   if (getSearchTokenVariants(token).some(variant => name.includes(variant))) return true;
   if (token.length < 3) return false;
   return name.split(/[^0-9a-z가-힣]+/i).some(candidate => candidate.length >= 3 && editDistance(token, candidate) <= 1);
+}
+
+/**
+ * 용량·수량 표기. 부피(ml)와 무게(g)는 섞지 않고, 1L=1000ml / 1kg=1000g만 환산한다.
+ */
+type OptionMeasure = { amount: number; unit: string | null };
+
+const OPTION_UNITS = "ml|l|g|kg|개|정|입|세트|팩|롤|장|gb|tb";
+const OPTION_TOKEN_PATTERN = new RegExp(`^(\\d+(?:\\.\\d+)?)(${OPTION_UNITS})?$`, "i");
+const OPTION_MEASURE_PATTERN = new RegExp(`(\\d+(?:\\.\\d+)?)(${OPTION_UNITS})`, "gi");
+
+function toComparableMeasure(measure: OptionMeasure): OptionMeasure {
+  if (measure.unit === "l") return { amount: measure.amount * 1000, unit: "ml" };
+  if (measure.unit === "kg") return { amount: measure.amount * 1000, unit: "g" };
+  return measure;
+}
+
+/** 검색어 토큰이 순수한 용량·수량 표기일 때만 파싱한다("아토베리어365" 같은 모델명은 제외). */
+function parseOptionToken(token: string): OptionMeasure | null {
+  const match = OPTION_TOKEN_PATTERN.exec(token);
+  if (!match) return null;
+  const amount = Number(match[1]);
+  if (!Number.isFinite(amount) || amount <= 0) return null;
+  return toComparableMeasure({ amount, unit: match[2]?.toLowerCase() ?? null });
+}
+
+function extractOptionMeasures(text: string): OptionMeasure[] {
+  const measures: OptionMeasure[] = [];
+  OPTION_MEASURE_PATTERN.lastIndex = 0;
+  let match = OPTION_MEASURE_PATTERN.exec(text);
+  while (match) {
+    const amount = Number(match[1]);
+    if (Number.isFinite(amount) && amount > 0) measures.push(toComparableMeasure({ amount, unit: match[2]!.toLowerCase() }));
+    match = OPTION_MEASURE_PATTERN.exec(text);
+  }
+  return measures;
+}
+
+/**
+ * 2026-10-01: 용량·수량은 상품명이 아니라 variantLabel·unitLabel·quantity에 담기는
+ * 경우가 많다. 그런데 옵션 점수를 상품명에서만 찾고 있어서 "비플레인 80"으로 검색하면
+ * 80ml 상품과 180ml 상품이 똑같이 0점을 받고, 결국 API 응답 순서대로 엉뚱한 용량이
+ * 먼저 나왔다. 저장된 옵션 값까지 함께 본다.
+ *
+ * 아울러 순수 용량 토큰은 문자열 포함이 아니라 숫자로 비교한다. "80"이 "180ml"에
+ * 포함된다는 이유로 점수를 받으면 정작 80ml 상품과 동점이 되어 같은 문제가 남는다.
+ */
+function matchesOptionToken(token: string, product: SearchableProduct, normalizedName: string) {
+  const wanted = parseOptionToken(token);
+  if (!wanted) return matchesSearchToken(token, normalizedName);
+  const haystack = [
+    normalizedName,
+    normalize(product.variantLabel ?? undefined),
+    normalize(product.unitLabel ?? undefined),
+    product.quantity && product.quantity > 0 ? `${product.quantity}개` : "",
+  ].filter(Boolean).join(" ");
+  return extractOptionMeasures(haystack).some(measure =>
+    measure.amount === wanted.amount && (wanted.unit === null || measure.unit === wanted.unit));
 }
 
 /** 같은 제품군을 뜻하는 쿠팡 상품명 표기 변형을 관련도 비교에 함께 사용합니다. */
@@ -209,7 +269,7 @@ export function rankSearchResults<T extends SearchableProduct>(keyword: string, 
     const fullMatch = Boolean(query) && name.includes(query);
     const tokenMatches = tokens.filter(token => matchesSearchToken(token, name)).length;
     const firstTokenMatches = tokens.length > 0 && matchesSearchToken(tokens[0]!, name);
-    const optionMatches = optionTokens.filter(token => matchesSearchToken(token, name)).length;
+    const optionMatches = optionTokens.filter(token => matchesOptionToken(token, product, name)).length;
     // 3개 이상 토큰의 상품 검색에서는 첫 토큰(대개 브랜드·제품군)을 반드시 포함시켜
     // '수분 크림'만 겹치는 타 브랜드 상품이 섞이지 않게 한다.
     const hasEnoughCoreMatches = tokens.length > 0

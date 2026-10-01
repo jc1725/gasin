@@ -198,3 +198,45 @@ describe("hasFullKeywordMatch", () => {
     expect(hasFullKeywordMatch("케라스타즈 샴푸", [{ productName: "케라스타즈 엘릭서 얼팀 샴푸 250ml" }])).toBe(true);
   });
 });
+
+// 2026-10-01: "비플레인 80"으로 검색하면 80ml 상품이 아니라 엉뚱한 용량이 먼저 나왔다.
+// 용량은 상품명이 아니라 variantLabel에 담기는데 옵션 점수를 상품명에서만 찾고 있어서,
+// 80ml 상품과 180ml 상품이 똑같이 0점을 받고 결국 API 응답 순서가 그대로 노출됐다.
+describe("저장된 용량·수량으로 옵션 관련도를 매긴다", () => {
+  const 비플레인 = [
+    { name: "비플레인 녹두 약산성 클렌징폼", variantLabel: "180ml", quantity: 1 },
+    { name: "비플레인 녹두 진정 토너", variantLabel: "200ml", quantity: 1 },
+    { name: "[비건뷰티] 비플레인 녹두 약산성 클렌징폼", variantLabel: "80ml", quantity: 1 },
+  ];
+
+  it("상품명에 용량이 없어도 variantLabel의 용량이 맞는 상품을 앞에 둔다", () => {
+    expect(rankSearchResults("비플레인 80", 비플레인)[0]!.variantLabel).toBe("80ml");
+    expect(rankSearchResults("비플레인 80ml", 비플레인)[0]!.variantLabel).toBe("80ml");
+  });
+
+  it("용량은 부분 문자열이 아니라 숫자로 비교한다", () => {
+    // "80"이 "180ml"에 포함된다는 이유로 점수를 받으면 80ml 상품과 동점이 되어버린다.
+    expect(rankSearchResults("비플레인 180", 비플레인)[0]!.variantLabel).toBe("180ml");
+  });
+
+  it("1L과 1000ml은 같은 용량으로 본다", () => {
+    expect(rankSearchResults("삼다수 1l", [
+      { name: "삼다수 생수", variantLabel: "500ml", quantity: 1 },
+      { name: "삼다수 생수", variantLabel: "1000ml", quantity: 1 },
+    ])[0]!.variantLabel).toBe("1000ml");
+  });
+
+  it("숫자가 섞인 모델명 토큰은 용량으로 오해하지 않는다", () => {
+    expect(rankSearchResults("에스트라 미스크 120", [
+      { name: "AESTURA 아토베리어365 하이드로 에센스 미스트 120ml" },
+      { name: "아이오페 수분 크림 50ml" },
+    ]).map(product => product.name)).toEqual(["AESTURA 아토베리어365 하이드로 에센스 미스트 120ml"]);
+  });
+
+  it("수량도 저장된 값으로 맞춘다", () => {
+    expect(rankSearchResults("비플레인 클렌징폼 2개", [
+      { name: "비플레인 녹두 약산성 클렌징폼", variantLabel: "80ml", quantity: 1 },
+      { name: "비플레인 녹두 약산성 클렌징폼", variantLabel: "80ml", quantity: 2 },
+    ])[0]!.quantity).toBe(2);
+  });
+});
