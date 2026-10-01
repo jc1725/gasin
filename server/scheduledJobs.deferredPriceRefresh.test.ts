@@ -11,11 +11,14 @@ vi.mock("./deepLinks", () => ({ generatePendingDeepLinks: mocks.generatePendingD
 vi.mock("./googleDrivePersonal", () => ({ syncProductsToPersonalGoogleDrive: vi.fn() }));
 vi.mock("./coupangRateLimit", () => ({ CoupangRateLimitError: class CoupangRateLimitError extends Error {} }));
 
-import { PRICE_REFRESH_SEARCH_BATCH_SIZE, recheckDeferredSearchProducts, refreshDeferredSearchPrices } from "./scheduledJobs";
+import { DEFER_SWEEP_MIN_INTERVAL_MS, PRICE_REFRESH_SEARCH_BATCH_SIZE, recheckDeferredSearchProducts, refreshDeferredSearchPrices, resetDeferSweepState } from "./scheduledJobs";
 
 describe("deferred search price refresh job", () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    // 2026-10-01: deferred 일괄 표시는 3분 간격으로 throttle되므로 모듈 상태가
+    // 테스트 사이에 새면 두 번째 실행부터 listAllTrackedProducts를 건너뛴다.
+    resetDeferSweepState();
     mocks.startSyncRun.mockResolvedValue(7);
     mocks.listAllTrackedProducts.mockResolvedValue([{ id: 41, source: "search" }]);
     mocks.deferSearchProductRefresh.mockResolvedValue(1);
@@ -86,5 +89,54 @@ describe("deferred search price refresh job", () => {
     expect(mocks.recordDeferredSearchRecheckError).toHaveBeenCalledWith(41, "Coupang API error 400: keyword maximum length is 50");
     expect(mocks.recordDeferredSearchRecheckMiss).toHaveBeenCalledWith(42, expect.stringContaining("정확 SKU"));
     expect(mocks.finishSyncRun).toHaveBeenCalledWith(7, "success", 2, expect.stringContaining("API 오류 재시도 대기 1개"));
+  });
+  // 2026-10-01: 가격 재확인이 분당 추적 예산(32회)을 한 실행에 전부 써버려서, 뒤에
+  // 호출되던 딥링크 생성이 매 실행 0건이었다(운영 DB: pending 6,034개). 순서를
+  // 뒤집어 딥링크가 작은 예약 몫(8회)을 먼저 확보하게 했다.
+  it("generates deep links before rechecking prices so the queue is not starved", async () => {
+    const order: string[] = [];
+    mocks.generatePendingDeepLinks.mockImplementation(async () => {
+      order.push("deeplink");
+      return { processedCount: 1, detail: "새 딥링크 1개를 저장했습니다." };
+    });
+    mocks.getDeferredSearchProducts.mockImplementation(async () => {
+      order.push("recheck");
+      return [];
+    });
+
+    await refreshDeferredSearchPrices();
+
+    expect(order).toEqual(["deeplink", "recheck"]);
+  });
+
+  // 2026-10-01: 작업 주기를 1분으로 올리면서, 매 실행 첫 줄의 "전체 추적 상품 조회 +
+  // deferred 일괄 표시"(상품 3만여 개를 500개씩 UPDATE)는 지금까지와 같은 3분 간격을
+  // 유지한다. 시간이 지나야 대상이 늘어나는 성질이라 1분마다 돌릴 이유가 없다.
+  it("throttles the deferred-mark sweep so a faster cron does not multiply the DB writes", async () => {
+    await refreshDeferredSearchPrices();
+    expect(mocks.listAllTrackedProducts).toHaveBeenCalledTimes(1);
+    expect(mocks.deferSearchProductRefresh).toHaveBeenCalledTimes(1);
+
+    await refreshDeferredSearchPrices();
+    expect(mocks.listAllTrackedProducts).toHaveBeenCalledTimes(1);
+    expect(mocks.deferSearchProductRefresh).toHaveBeenCalledTimes(1);
+
+    // 건너뛴 실행에서도 재확인과 딥링크 생성은 그대로 돈다 — 처리량을 늘리는 게 목적이다.
+    expect(mocks.getDeferredSearchProducts).toHaveBeenCalledTimes(2);
+    expect(mocks.generatePendingDeepLinks).toHaveBeenCalledTimes(2);
+  });
+
+  it("sweeps again once the throttle interval has passed", async () => {
+    vi.useFakeTimers();
+    try {
+      await refreshDeferredSearchPrices();
+      expect(mocks.deferSearchProductRefresh).toHaveBeenCalledTimes(1);
+
+      vi.advanceTimersByTime(DEFER_SWEEP_MIN_INTERVAL_MS);
+      await refreshDeferredSearchPrices();
+      expect(mocks.deferSearchProductRefresh).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

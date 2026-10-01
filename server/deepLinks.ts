@@ -1,11 +1,19 @@
 import { createCoupangDeepLinks } from "./coupang";
 import * as db from "./db";
-import { CoupangRateLimitError } from "./coupangRateLimit";
+import { COUPANG_TRACKING_GLOBAL_MAX_CALLS_PER_MINUTE, CoupangRateLimitError } from "./coupangRateLimit";
 
 export type DeepLinkBatchResult = { processedCount: number; skipped?: boolean; detail: string };
 
-/** 한 실행에서 쿠팡 딥링크 변환 API를 부를 최대 상품 수(가격 추적 분당 예산 보호). */
-export const DEEP_LINK_API_CALLS_PER_RUN = 20;
+/**
+ * 한 실행에서 쿠팡 딥링크 변환 API를 부를 최대 상품 수.
+ *
+ * 2026-10-01: 20이던 상한을 8로 낮춘다. 상한이 문제가 아니라 순서가 문제였다 —
+ * 가격 재확인이 먼저 돌면서 분당 추적 예산 32회를 전부 쓰고 끝나, 딥링크 생성은
+ * 매 실행 0회였다(운영 DB: pending 6,034개, syncRuns 기록이 매번 "보호 모드").
+ * 이제 딥링크를 먼저 돌리되(server/scheduledJobs.ts), 가격 재확인 쪽을 굶기지
+ * 않도록 예약 몫을 작게 고정한다. 32회 중 8회를 딥링크가, 나머지를 재확인이 쓴다.
+ */
+export const DEEP_LINK_API_CALLS_PER_RUN = 8;
 type PendingDeepLinkProduct = { id: number; affiliateUrl: string };
 
 function isStoredCoupangAffiliateUrl(value: string) {
@@ -28,7 +36,11 @@ function isSupportedDirectCoupangUrl(value: string) {
 }
 
 async function generateDeepLinksForProducts(pending: PendingDeepLinkProduct[]): Promise<DeepLinkBatchResult> {
-  const globalQuota = await db.getCoupangApiRateLimitStatus();
+  // 2026-10-01: 실제 호출은 reserveCoupangApiCall에서 추적 상한(32)으로 막히는데,
+  // 사전 점검만 전역 상한(46)으로 보고 있었다. 그래서 32~45 구간에서는 점검을
+  // 통과한 뒤 첫 변환 호출이 CoupangRateLimitError로 터지는 경로를 탔다. 같은
+  // 기준으로 본다.
+  const globalQuota = await db.getCoupangApiRateLimitStatus(new Date(), COUPANG_TRACKING_GLOBAL_MAX_CALLS_PER_MINUTE);
   if (!globalQuota.allowed) {
     await db.recordCoupangRateLimitEvent("deeplink", globalQuota.reason ?? "minute-limit", globalQuota.retryAt);
     return { processedCount: 0, skipped: true, detail: `쿠팡 전역 API 보호 모드(${globalQuota.reason ?? "minute-limit"}): ${globalQuota.retryAt?.toISOString() ?? "해제 시각 미정"} 이후 딥링크 생성 재개` };

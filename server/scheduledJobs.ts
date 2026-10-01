@@ -374,17 +374,47 @@ export async function refreshTrackedPrices() {
   });
 }
 
-/** 3분 가격 갱신 예약 작업: 상품별 오류를 격리해 제한 시간 안에 종료합니다. */
+/**
+ * deferred 표시 일괄 점검을 다시 돌리기까지의 최소 간격.
+ *
+ * 2026-10-01: 이 작업 주기를 3분에서 1분으로 올린다. 분당 상한(추적 32회)은 그대로인데
+ * 작업이 3분마다 깨어나 17초 돌고 끝나서, 남은 2분 45초치 예산이 그냥 버려지고 있었다
+ * (추적 상품 33,732개 재확인 한 바퀴가 24시간이 아니라 약 3.4일). 주기만 올리면 쿠팡 쪽
+ * 위험은 늘지 않는다 — 이미 확보해둔 예산을 쓰는 것뿐이다.
+ *
+ * 다만 매 실행 첫 줄의 "전체 추적 상품 조회 + deferred 일괄 표시"는 주기에 비례해
+ * 그대로 3배가 된다(상품 33,732개를 500개씩 68번 UPDATE). 이쪽은 시간이 지나야 대상이
+ * 늘어나는 성질이라 1분마다 돌릴 이유가 없으므로, 지금까지와 같은 3분 간격을 유지한다.
+ * 결과적으로 API 처리량만 3배가 되고 DB 쓰기 부담은 그대로다.
+ */
+export const DEFER_SWEEP_MIN_INTERVAL_MS = 3 * 60 * 1000;
+
+type DeferSweepState = { sweptAt: number; searchTrackedCount: number; deferredSearchCount: number };
+let deferSweepState: DeferSweepState | null = null;
+
+/** 테스트에서 실행 간 상태가 새지 않도록 초기화한다. */
+export function resetDeferSweepState() {
+  deferSweepState = null;
+}
+
+/** 3분 간격을 지키며 deferred 일괄 표시를 수행하고, 건너뛴 실행에는 직전 집계를 재사용한다. */
+async function sweepDeferredSearchMarks(now = Date.now()) {
+  if (deferSweepState && now - deferSweepState.sweptAt < DEFER_SWEEP_MIN_INTERVAL_MS) return deferSweepState;
+  const tracked = (await db.listAllTrackedProducts()).filter(product => !isExcludedTrackingCategory({ categoryName: product.categoryName, name: product.name }));
+  const searchTrackedProductIds = tracked.filter(product => product.source === "search").map(product => product.id);
+  const deferredSearchCount = await db.deferSearchProductRefresh(searchTrackedProductIds);
+  deferSweepState = { sweptAt: now, searchTrackedCount: searchTrackedProductIds.length, deferredSearchCount };
+  return deferSweepState;
+}
+
+/** 1분 가격 갱신 예약 작업: 상품별 오류를 격리해 제한 시간 안에 종료합니다. */
 export async function refreshDeferredSearchPrices() {
   return runTrackedJob("price", async () => {
-    const tracked = (await db.listAllTrackedProducts()).filter(product => !isExcludedTrackingCategory({ categoryName: product.categoryName, name: product.name }));
-    const searchTrackedProductIds = tracked.filter(product => product.source === "search").map(product => product.id);
-    const deferredSearchCount = await db.deferSearchProductRefresh(searchTrackedProductIds);
+    const { searchTrackedCount, deferredSearchCount } = await sweepDeferredSearchMarks();
     const quota = await db.getSearchApiQuotaStatus();
     if (!quota.allowed && quota.reason === "emergency-block") {
       return { processedCount: 0, skipped: true, detail: `Coupang API 보호 모드: 검색 등록 ${deferredSearchCount}개를 ${quota.retryAt?.toISOString() ?? "해제 시각 미정"}까지 보류` } satisfies JobOutcome;
     }
-    const outcome = await recheckDeferredSearchProductsForPriceJob();
     // 2026-09-29: 예전에는 "이번 실행에서 정확 SKU가 재확인됐거나 수집기 관측으로 유지된
     // 상품이 있을 때"만 딥링크 생성을 호출했다. 그런데 딥링크 생성 대기(pending)는 이
     // 실행과 무관한 경로에서도 계속 쌓인다(수집기 신규 등록, 미일치 상품의 딥링크 유지
@@ -394,7 +424,13 @@ export async function refreshDeferredSearchPrices() {
     // 주소를 가진 상품은 쿠팡 API를 부르지 않고 그대로 재사용하므로 추가 비용이 거의 없다.
     // (실패했던 URL을 재사용하지 않는다는 기존 원칙은 generateDeepLinksForProducts 안에서
     // 그대로 유지된다.)
+    //
+    // 2026-10-01: 가격 재확인보다 먼저 돌린다. 재확인은 상품당 최대 2회씩 불러서 분당
+    // 추적 예산(32회)을 한 실행에 전부 소진하고, 그 뒤에 호출되던 딥링크 생성은 매번
+    // 0건으로 끝나고 있었다(운영 DB: pending 6,034개). 딥링크는 상품당 1회로 비용이
+    // 일정하고 상한이 8회로 작아서, 먼저 돌려도 재확인이 쓸 몫이 24회 남는다.
     const deepLinkBatch = await generatePendingDeepLinks();
+    const outcome = await recheckDeferredSearchProductsForPriceJob();
     // 2026-10-01: 제품 그룹키(familyVariantKey)는 새로 추가한 컬럼이라 기존 행이 전부
     // 비어 있다. 관리자가 버튼을 눌러야만 채워지는 구조로 두면 "눌렀는지 아닌지"에 따라
     // 묶음이 반쯤 동작하는 상태가 생기므로, 이미 3분마다 확실히 도는 이 작업에 배치로
@@ -404,7 +440,7 @@ export async function refreshDeferredSearchPrices() {
     return {
       processedCount: outcome.processedCount,
       skipped: outcome.skipped,
-      detail: `${outcome.detail}. ${deepLinkBatch.detail}.${groupKeyBatch.updatedCount > 0 ? ` 제품 그룹키 ${groupKeyBatch.updatedCount}개 보완${groupKeyBatch.remaining ? "(남은 행 있음)" : "(완료)"}.` : ""} 공식 API 기본가는 표시용이며 알림에는 사용하지 않습니다. 검색 등록 ${searchTrackedProductIds.length}개 중 마지막 확인이 24시간 지난 상품을 오래된 순으로 최대 ${PRICE_REFRESH_SEARCH_BATCH_SIZE}개 처리합니다.`,
+      detail: `${outcome.detail}. ${deepLinkBatch.detail}.${groupKeyBatch.updatedCount > 0 ? ` 제품 그룹키 ${groupKeyBatch.updatedCount}개 보완${groupKeyBatch.remaining ? "(남은 행 있음)" : "(완료)"}.` : ""} 공식 API 기본가는 표시용이며 알림에는 사용하지 않습니다. 검색 등록 ${searchTrackedCount}개 중 마지막 확인이 24시간 지난 상품을 오래된 순으로 최대 ${PRICE_REFRESH_SEARCH_BATCH_SIZE}개 처리합니다.`,
     } satisfies JobOutcome;
   });
 }

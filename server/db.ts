@@ -2231,16 +2231,20 @@ export async function recordCoupangRateLimitEvent(jobType: "search" | "deeplink"
   }
 }
 
-export async function getCoupangApiRateLimitStatus(now = new Date()) {
+/**
+ * 전역 창 상태를 읽는다. maxCalls를 넘기지 않으면 전역 상한(46) 기준이며, 가격 추적
+ * 쪽 사전 점검은 실제 게이트와 같은 추적 상한을 넘겨서 봐야 한다.
+ */
+export async function getCoupangApiRateLimitStatus(now = new Date(), maxCalls = COUPANG_API_MAX_CALLS_PER_MINUTE) {
   const db = await getDb();
-  if (!db) return decideCoupangRateLimit(null, now);
+  if (!db) return decideCoupangRateLimit(null, now, maxCalls);
   const current = (await db.select().from(searchApiQuotas).where(eq(searchApiQuotas.scope, COUPANG_GLOBAL_RATE_LIMIT_SCOPE)).limit(1))[0];
   return decideCoupangRateLimit(current ? {
     windowStartedAt: current.windowStartedAt,
     callCount: current.callCount,
     lastCallAt: current.lastCallAt,
     blockedUntil: current.blockedUntil,
-  } : null, now);
+  } : null, now, maxCalls);
 }
 
 export async function listAllTrackedProducts() {
