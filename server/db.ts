@@ -37,7 +37,7 @@ import type { UserConfirmedPriceCsvRow } from "./userConfirmedPriceCsv";
 import type { AdminOptionCsvRow } from "./adminOptionCsv";
 import { ENV } from './_core/env';
 import { createHash } from "node:crypto";
-import { selectCheapestPerProductGroupByRecency, selectRepresentativesPerFamily } from "./productDedupe";
+import { selectCheapestPerProductGroupByRecency, selectRelatedVariantsForDisplay, selectRepresentativesPerFamily } from "./productDedupe";
 import { getSafeMergeDirection, listSafeMergeCandidates } from "./productMerge";
 import { buildPriceRefreshStats } from "./priceRefreshStats";
 import { getSearchTokenVariants, getSearchTokens, rankSearchResults } from "./searchRelevance";
@@ -2996,11 +2996,13 @@ export async function listRelatedProductVariants(productId: number) {
   if (!db) return [];
   const current = await getProductById(productId);
   if (!current?.familyKey) return [];
-  return db
+  const rows = await db
     .select()
     .from(products)
     .where(and(eq(products.familyKey, current.familyKey), ne(products.id, productId), eq(products.isActive, true)))
     .orderBy(asc(products.unitPrice), asc(products.currentPrice));
+  // 2026-10-01: 구성 하나당 한 줄로 줄인다(같은 구성 다른 판매자·옵션 정보 없는 행 정리).
+  return selectRelatedVariantsForDisplay(current, rows);
 }
 
 export async function listFavoriteProducts(userId: number) {

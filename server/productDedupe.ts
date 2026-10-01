@@ -1,4 +1,4 @@
-import { isUngroupedProductKey } from "./productVariant";
+import { isUngroupedProductKey, resolveStoredProductGroupKey, type StoredGroupKeyInput } from "./productVariant";
 
 type GroupedProduct = {
   familyVariantKey: string | null;
@@ -127,4 +127,30 @@ export function selectRepresentativesPerFamily<T extends FamilyProduct>(products
 
   return [...passthrough, ...representatives]
     .sort((left, right) => right.lastSeenAt.getTime() - left.lastSeenAt.getTime());
+}
+
+type RelatedVariantRow = GroupedProduct & StoredGroupKeyInput & { id: number; variantLabel: string | null };
+
+/**
+ * 2026-10-01: 상품 상세 "다른 옵션 보기"가 58개 구성처럼 길게 나오던 문제. 같은 상품군
+ * (familyKey)의 활성 행을 전부 돌려줘서, 같은 구성(80ml·1개)을 파는 여러 판매자 행과
+ * 용량을 읽지 못한 행이 줄줄이 반복됐다. 목록을 "구성 하나당 한 줄"로 줄인다.
+ *
+ * 1. 지금 보고 있는 상품과 같은 구성(같은 제품 그룹)의 다른 판매자 행은 뺀다. 그중 더 싼
+ *    행은 상세 상단 "같은 제품 더 싼 판매처" 배너가 이미 보여 준다.
+ * 2. 나머지는 구성마다 대표 한 행(selectCheapestPerProductGroup: 구매 가능·가격 확인·최저가)만
+ *    남긴다. familyVariantKey가 아직 백필되지 않은 행은 저장된 값으로 같은 규칙의 키를 계산한다.
+ * 3. 용량·수량 정보가 없는 행은 어떤 구성인지 알 수 없어 비교에 쓸모가 없으므로, 정보가 있는
+ *    행이 하나라도 있으면 숨긴다. 정보가 있는 행이 하나도 없을 때만 그대로 보여 준다.
+ *
+ * 입력 순서(단위가·현재가 오름차순)는 유지한다. DB 데이터는 건드리지 않고 표시만 줄인다.
+ */
+export function selectRelatedVariantsForDisplay<T extends RelatedVariantRow>(current: RelatedVariantRow, rows: T[]): T[] {
+  const keyOf = (row: RelatedVariantRow) => groupKeyOf({ ...row, familyVariantKey: row.familyVariantKey ?? resolveStoredProductGroupKey(row) });
+  const currentGroup = keyOf(current);
+  const others = rows.filter(row => row.id !== current.id && !(currentGroup && keyOf(row) === currentGroup));
+  const shadows = others.map(row => ({ ...row, familyVariantKey: row.familyVariantKey ?? resolveStoredProductGroupKey(row), original: row }));
+  const representatives = selectCheapestPerProductGroup(shadows).map(shadow => shadow.original);
+  const withOptionInfo = representatives.filter(row => Boolean(row.variantLabel?.trim()));
+  return withOptionInfo.length > 0 ? withOptionInfo : representatives;
 }
