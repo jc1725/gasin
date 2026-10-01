@@ -103,7 +103,7 @@ export default function ProductCard({
       {compositionLabel || metaTags.packSize ? <div className="mt-2 flex flex-wrap gap-1.5">{compositionLabel ? <span className="rounded-full bg-[#e7f3e9] px-2 py-1 text-[10px] font-bold text-[#176b3a]">{compositionLabel}</span> : null}{metaTags.packSize ? <span className="rounded-full bg-[#fff3df] px-2 py-1 text-[10px] font-bold text-[#9a6415]">포장 {metaTags.packSize}</span> : null}</div> : null}
       <div className="mt-2 flex items-end justify-between gap-1">
         <strong className="text-[16px] tracking-[-0.045em] text-[#132018]">{!hasRecordedPrice ? "가격 정보 없음" : product.inStock === false ? `마지막 ${won(product.currentPrice)}` : won(product.currentPrice)}</strong>
-        {/* 2026-10-01: "마지막 확인 {날짜}"는 사용자에게 필요 없는 내부 정보라 숨긴다(인환님 요청). 오래된 상품은 isLowest가 false라 "최저가" 배지 대신 "최저 N원"이 나온다. */}
+        {/* 2026-10-01: "마지막 확인 날짜" 문구는 사용자에게 필요 없는 내부 정보라 숨긴다(인환님 요청). 오래된 상품은 isLowest가 false라 "최저가" 배지 대신 "최저 N원"이 나온다. */}
         {product.inStock === false ? <span className="mb-0.5 text-[10px] font-bold text-[#646b66]">품절</span> : isLowest ? (
           <span className="mb-0.5 inline-flex items-center gap-0.5 text-[10px] font-bold text-[#118245]"><Sparkles className="size-3" />최저가</span>
         ) : hasRecordedPrice ? (
