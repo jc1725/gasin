@@ -63,6 +63,43 @@ function normalizeSize(value: number, unit: string, unitBase: number) {
   return { amount: value, displayUnit: "g", unitLabel: "100g", unitBase: 100, measureUnit: "g" as MeasureUnit };
 }
 
+/**
+ * 2026-10-01: "비플레인 녹두 약산성 클렌징폼 120ml + 80ml 기획세트"가 용량 80ml로
+ * 기록되고 있었다. 용량 표기를 여러 개 찾은 뒤 마지막 하나(sizes.at(-1))만 쓰고 있어서,
+ * 기획 구성의 뒤쪽 용량만 남고 앞쪽 120ml이 통째로 사라졌다. 그 결과 단가도 200ml이
+ * 아니라 80ml 기준으로 계산되고(77,200원이 "10ml당 9,650원"), 그룹키도 80ml짜리 낱개
+ * 상품과 같은 묶음으로 잡혔다.
+ *
+ * 용량 표기가 '+'로 **곧바로** 이어진 경우만 합산한다("120ml + 80ml" → 200ml). 사이에
+ * 다른 단어가 끼어 있으면("샴푸 500ml + 트리트먼트 300ml") 서로 다른 품목일 수 있으므로
+ * 건드리지 않는다 — 합치는 쪽이 틀렸을 때의 피해가 더 크다. 부피와 무게가 섞여 있으면
+ * 역시 합산하지 않는다.
+ */
+function sumPlusJoinedSizes(name: string, sizes: RegExpMatchArray[], unitBase: number) {
+  if (sizes.length < 2) return null;
+  const group = [sizes.at(-1)!];
+  for (let index = sizes.length - 1; index > 0; index -= 1) {
+    const right = sizes[index]!;
+    const left = sizes[index - 1]!;
+    if (left.index === undefined || right.index === undefined) break;
+    const between = name.slice(left.index + left[0].length, right.index);
+    if (!/^\s*\+\s*$/.test(between)) break;
+    group.unshift(left);
+  }
+  if (group.length < 2) return null;
+
+  const parts = group.map(match => normalizeSize(normalizeNumber(match[1]!), match[2]!, unitBase));
+  const measureUnit = parts[0]!.measureUnit;
+  if (parts.some(part => part.measureUnit !== measureUnit)) return null;
+  const amount = parts.reduce((total, part) => total + part.amount, 0);
+  if (!Number.isFinite(amount) || amount <= 0) return null;
+
+  const base = parts.at(-1)!;
+  // 합산값은 항상 ml·g으로 환산된 값이므로 표시 단위도 환산 단위를 그대로 쓴다
+  // ("1L + 500ml" → 1500ml). L 표기를 그대로 두면 "1500L"이 되어버린다.
+  return { ...base, amount, displayUnit: measureUnit };
+}
+
 export function describeProductVariant(name: string, price: number, categoryName?: string | null): ProductVariantInfo {
   const quantities = Array.from(name.matchAll(QUANTITY_PATTERN));
   const quantityMatch = quantities.at(-1);
@@ -81,14 +118,18 @@ export function describeProductVariant(name: string, price: number, categoryName
   }
 
   const beautyProduct = /뷰티|스킨|클렌징|크림|세럼|앰플|향수|선크림|샴푸|바디워시/i.test(`${categoryName ?? ""} ${name}`);
-  const normalized = normalizeSize(normalizeNumber(size[1]), size[2], beautyProduct ? 10 : 100);
+  const unitBase = beautyProduct ? 10 : 100;
+  const bundled = sumPlusJoinedSizes(name, sizes, unitBase);
+  const normalized = bundled ?? normalizeSize(normalizeNumber(size[1]), size[2], unitBase);
   if (!Number.isFinite(normalized.amount) || normalized.amount <= 0) {
     if (!hasBareQuantitySignal) return { variantLabel: null, unitPrice: null, unitLabel: null, quantity: null, sizeAmount: null, measureUnit: null };
     return { variantLabel: `${quantityCount}${quantityUnit}`, unitPrice: null, unitLabel: null, quantity: quantityCount, sizeAmount: null, measureUnit: null };
   }
 
   const effectiveQuantity = quantityCount ?? 1;
-  const sizeDisplay = `${size[1]}${normalized.displayUnit}`;
+  const sizeDisplay = bundled
+    ? `${roundMeasure(bundled.amount)}${bundled.displayUnit}`
+    : `${size[1]}${normalized.displayUnit}`;
   const variantLabel = quantityMatch ? `${sizeDisplay} × ${effectiveQuantity}${quantityUnit}` : sizeDisplay;
   const totalAmount = normalized.amount * effectiveQuantity;
 
