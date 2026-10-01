@@ -345,7 +345,7 @@ export async function collectBestCategoryProducts() {
 
 export async function refreshTrackedPrices() {
   return runTrackedJob("price", async () => {
-    const tracked = (await db.listAllTrackedProducts()).filter(product => !isExcludedTrackingCategory({ categoryName: product.categoryName, name: product.name }));
+    const tracked = (await db.listAllTrackedProducts({ refreshableOnly: true })).filter(product => !isExcludedTrackingCategory({ categoryName: product.categoryName, name: product.name }));
     const prioritySummary = await db.getTrackingPrioritySummary();
     const searchTrackedProductIds = tracked.filter(product => product.source === "search").map(product => product.id);
     const searchTrackedCount = searchTrackedProductIds.length;
@@ -400,7 +400,7 @@ export function resetDeferSweepState() {
 /** 3분 간격을 지키며 deferred 일괄 표시를 수행하고, 건너뛴 실행에는 직전 집계를 재사용한다. */
 async function sweepDeferredSearchMarks(now = Date.now()) {
   if (deferSweepState && now - deferSweepState.sweptAt < DEFER_SWEEP_MIN_INTERVAL_MS) return deferSweepState;
-  const tracked = (await db.listAllTrackedProducts()).filter(product => !isExcludedTrackingCategory({ categoryName: product.categoryName, name: product.name }));
+  const tracked = (await db.listAllTrackedProducts({ refreshableOnly: true })).filter(product => !isExcludedTrackingCategory({ categoryName: product.categoryName, name: product.name }));
   const searchTrackedProductIds = tracked.filter(product => product.source === "search").map(product => product.id);
   const deferredSearchCount = await db.deferSearchProductRefresh(searchTrackedProductIds);
   deferSweepState = { sweptAt: now, searchTrackedCount: searchTrackedProductIds.length, deferredSearchCount };

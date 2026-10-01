@@ -2262,13 +2262,40 @@ export async function getCoupangApiRateLimitStatus(now = new Date(), maxCalls = 
   } : null, now, maxCalls);
 }
 
-export async function listAllTrackedProducts() {
+/**
+ * 2026-10-01: 가격 갱신 대상 조건 — 로켓 계열이거나, 누군가 찜한 상품만 갱신한다.
+ *
+ * 가격 갱신 대상이 상품 수만큼 끝없이 늘어나는 문제를 줄이기 위한 정책이다. 로켓이
+ * 아닌 상품은 사용자가 검색 후 찜을 해두었을 때만 갱신한다. 찜하는 순간부터 대상이
+ * 되고, 찜이 모두 사라지면 다시 대상에서 빠진다. 대상에서 빠진 상품은 삭제하지 않고
+ * 마지막으로 확인한 가격 그대로 보여준다.
+ *
+ * 로켓 여부는 쿠팡 API가 주는 isRocket 하나만 쓴다. 로켓프레쉬·판매자로켓·로켓직구가
+ * 그 값에 포함되는지는 확인되지 않았고, 수집기 경로(source: collection)는 배송 배지를
+ * 보내지 않아 isRocket이 항상 false로 저장된다 — 그래서 수집기 상품은 찜한 것만
+ * 갱신 대상이 된다.
+ */
+export function refreshEligibleCondition() {
+  return or(
+    eq(products.isRocket, true),
+    sql`EXISTS (SELECT 1 FROM ${favorites} WHERE ${favorites.productId} = ${products.id})`,
+  );
+}
+
+/**
+ * 활성 상품 전체를 오래된 순으로 돌려준다. refreshableOnly를 켜면 가격 갱신 대상
+ * (로켓 계열이거나 찜한 상품)만 돌려준다. Drive 백업처럼 갱신이 아닌 용도는 옵션 없이
+ * 호출해 전체를 받는다.
+ */
+export async function listAllTrackedProducts(options: { refreshableOnly?: boolean } = {}) {
   const db = await getDb();
   if (!db) return [];
   return db
     .select()
     .from(products)
-    .where(eq(products.isActive, true))
+    .where(options.refreshableOnly
+      ? and(eq(products.isActive, true), refreshEligibleCondition())
+      : eq(products.isActive, true))
     .orderBy(asc(products.lastSeenAt));
 }
 
@@ -2465,7 +2492,9 @@ export async function getDeferredSearchProducts(limit = 24) {
       eq(products.refreshState, "deferred"),
       eq(products.isActive, true),
       eq(products.inStock, true),
-      or(isNull(products.nextRefreshAt), lte(products.nextRefreshAt, new Date()))
+      or(isNull(products.nextRefreshAt), lte(products.nextRefreshAt, new Date())),
+      // 2026-10-01: 로켓 계열이거나 찜한 상품만 가격을 다시 확인한다.
+      refreshEligibleCondition(),
     ))
     .orderBy(asc(products.nextRefreshAt), asc(products.lastSeenAt), asc(products.id))
     .limit(Math.min(Math.max(limit, 1), 24));
@@ -2542,6 +2571,8 @@ export async function getStaleTrackedProductsForExtensionRevisit(limit: number, 
       lt(products.lastSeenAt, staleBefore),
       eq(products.deepLinkStatus, "ready"),
       like(products.deepLinkUrl, "https://link.coupang.com/%"),
+      // 2026-10-01: 로켓 계열이거나 찜한 상품만 방문한다. 방문은 곧 가격 갱신이다.
+      refreshEligibleCondition(),
     ))
     // 2026-09-29: 수집기 관측만이 해소 경로인 상품(awaiting_collection)을 먼저 방문한다.
     // 그다음은 기존대로 가장 오래 확인되지 않은 순.

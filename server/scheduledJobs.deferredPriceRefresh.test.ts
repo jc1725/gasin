@@ -139,4 +139,10 @@ describe("deferred search price refresh job", () => {
       vi.useRealTimers();
     }
   });
+  // 2026-10-01: 가격 갱신 대상이 끝없이 늘어나는 문제를 줄이려고, 로켓 계열이 아닌 상품은
+  // 찜을 해두었을 때만 갱신한다. 3분 작업이 전체 상품이 아니라 갱신 대상만 받아야 한다.
+  it("asks only for refresh-eligible products when marking deferred rechecks", async () => {
+    await refreshDeferredSearchPrices();
+    expect(mocks.listAllTrackedProducts).toHaveBeenCalledWith({ refreshableOnly: true });
+  });
 });
