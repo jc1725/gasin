@@ -3374,6 +3374,40 @@ export async function prunePriceHistory(before: Date) {
   return getAffectedRows(result);
 }
 
+/**
+ * 작업 실행 기록 보존 기간. 가격 이력(90일)보다 짧게 둔다.
+ *
+ * 2026-10-01: syncRuns에는 보존 정책이 아예 없었다. 지금까지는 3분 주기라 하루 수백 행
+ * 수준이었지만, 가격 갱신 주기를 1분으로 올리면서 증가 속도가 3배가 된다 — 작업 자체
+ * 1,440행에 보호 모드 기록(recordCoupangRateLimitEvent)이 실행마다 최대 2행씩 더해져
+ * 하루 4천 행대, 연 150만 행이다. detail은 최대 4,000자 text라 무게도 가볍지 않다.
+ *
+ * 진단에 쓰이는 값은 최근 기록이고 오래된 행의 가치는 빠르게 떨어지므로 30일로 둔다
+ * (약 13만 행 수준에서 안정화). priceTrackingMetrics.runId는 onDelete: set null이라
+ * 성과 지표는 그대로 남는다.
+ */
+export const SYNC_RUN_RETENTION_DAYS = 30;
+
+/** 한 번에 지울 작업 기록 행 수. 긴 테이블 락을 피해 나눠 지운다. */
+export const SYNC_RUN_PRUNE_CHUNK_SIZE = 2_000;
+
+/** 보존 기간이 지난 작업 실행 기록을 나눠서 지운다. */
+export async function pruneSyncRuns(before: Date, maxChunks = 20) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is unavailable");
+  let deleted = 0;
+  for (let chunk = 0; chunk < maxChunks; chunk += 1) {
+    const result = await db
+      .delete(syncRuns)
+      .where(lt(syncRuns.startedAt, before))
+      .limit(SYNC_RUN_PRUNE_CHUNK_SIZE);
+    const affected = getAffectedRows(result);
+    deleted += affected;
+    if (affected < SYNC_RUN_PRUNE_CHUNK_SIZE) break;
+  }
+  return deleted;
+}
+
 export async function pruneCollectedPriceHistory(before: Date) {
   const db = await getDb();
   if (!db) throw new Error("Database is unavailable");

@@ -454,10 +454,15 @@ export async function removeExpiredPriceHistory() {
     // 관리자 병합·골드박스 탈락으로 90일 넘게 비활성 상태인 상품도 이 90일 보존 정책에
     // 같이 태운다(deleteExpiredInactiveProducts, server/db.ts).
     const { deletedCount: supersededDeleted } = await db.deleteExpiredInactiveProducts(expiry);
+    // 2026-10-01: syncRuns에는 보존 정책이 없었다. 가격 갱신 주기를 1분으로 올리면서
+    // 하루 증가분이 3배(작업 1,440행 + 보호 모드 기록 최대 2,880행)가 되므로 같이 태운다.
+    // 가격 이력보다 짧은 30일을 쓴다(server/db.ts의 SYNC_RUN_RETENTION_DAYS).
+    const syncRunExpiry = new Date(Date.now() - db.SYNC_RUN_RETENTION_DAYS * 24 * 60 * 60 * 1000);
+    const syncRunsDeleted = await db.pruneSyncRuns(syncRunExpiry);
     await db.markScheduleCompleted("retention");
     return {
-      processedCount: officialDeleted + collectedDeleted + supersededDeleted,
-      detail: `90일 이전 가격 이력 ${officialDeleted}건과 외부 수집 이력 ${collectedDeleted}건, 이관·병합·골드박스 탈락으로 90일 넘게 비활성 상태인 상품 ${supersededDeleted}개를 정리했습니다.`,
+      processedCount: officialDeleted + collectedDeleted + supersededDeleted + syncRunsDeleted,
+      detail: `90일 이전 가격 이력 ${officialDeleted}건과 외부 수집 이력 ${collectedDeleted}건, 이관·병합·골드박스 탈락으로 90일 넘게 비활성 상태인 상품 ${supersededDeleted}개를 정리했습니다. ${db.SYNC_RUN_RETENTION_DAYS}일 이전 작업 실행 기록 ${syncRunsDeleted}건도 함께 정리했습니다.`,
     } satisfies JobOutcome;
   });
 }
