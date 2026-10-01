@@ -22,6 +22,10 @@ const collectBodySchema = z.object({
     optionName: z.string().trim().max(500).optional(),
     capacityText: z.string().trim().max(80).optional(),
     quantity: z.number().int().positive().max(1_000_000).optional(),
+    // 2026-10-01: 수집기가 상품 페이지의 배송 배지(로켓배송·로켓프레쉬·판매자로켓·로켓직구)를
+    // 읽었을 때만 보낸다. 가격 갱신 대상(로켓 계열이거나 찜한 상품)을 가르는 값이다.
+    // 선택 필드라 이 필드를 모르는 이전 버전 확장도 그대로 동작한다.
+    isRocket: z.boolean().optional(),
     pageType: z.string().trim().min(1).max(100),
     collectedAt: z.string().datetime({ offset: true }),
   }).strict()).min(1).max(100),

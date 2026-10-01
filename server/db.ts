@@ -94,6 +94,8 @@ export type CollectedPriceInput = {
   optionName?: string;
   capacityText?: string;
   quantity?: number;
+  /** 수집기가 배송 배지(로켓 계열)를 확인했을 때만 true로 온다. 모르면 생략된다. */
+  isRocket?: boolean;
   pageType: string;
   source: string;
   collectedAt: Date;
@@ -544,6 +546,7 @@ export async function recordCollectedPriceItems(items: CollectedPriceInput[]) {
             nextRefreshAt: null,
             lastSeenAt: item.collectedAt,
             inStock: item.inStock,
+            ...(item.isRocket === true ? { isRocket: true } : {}),
             ...(item.inStock && effectivePrice > 0 ? { wowMemberPrice: effectivePrice, wowMemberPriceObservedAt: item.collectedAt } : {}),
           });
           if (!item.inStock || effectivePrice <= 0) {
@@ -601,7 +604,7 @@ export async function recordCollectedPriceItems(items: CollectedPriceInput[]) {
             lowestPrice: effectivePrice,
             inStock: item.inStock,
             source: "collection",
-            isRocket: false,
+            isRocket: item.isRocket === true,
             isFreeShipping: false,
             isActive: true,
             firstSeenAt: item.collectedAt,
@@ -724,6 +727,7 @@ export async function recordCollectedPriceItems(items: CollectedPriceInput[]) {
         ...(current.deepLinkStatus === "failed" ? { deepLinkStatus: "pending" as const, deepLinkUrl: null, deepLinkFailureReason: null, deepLinkUpdatedAt: new Date() } : {}),
         isActive: true,
         deactivatedAt: null,
+        ...(item.isRocket === true ? { isRocket: true } : {}),
         ...(item.inStock && effectivePrice > 0 ? { wowMemberPrice: effectivePrice, wowMemberPriceObservedAt: item.collectedAt } : {}),
       });
       if (!item.inStock || effectivePrice <= 0) {
@@ -1593,7 +1597,11 @@ export async function upsertCoupangProduct(product: CoupangProduct, source: Prod
       lowestPrice: sql`LEAST(${products.lowestPrice}, ${values.currentPrice})`,
       inStock: values.inStock,
       source: values.source,
-      isRocket: values.isRocket,
+      // 2026-10-01: 한 번 로켓 계열로 확인된 상품은 API 응답이 false여도 되돌리지 않는다.
+      // API의 isRocket이 로켓프레쉬·판매자로켓·로켓직구를 포함하는지 확인되지 않았고,
+      // 수집기는 상품 페이지의 배송 배지로 이들을 직접 읽는다. API 갱신이 그 값을 매번
+      // false로 덮으면 가격 갱신 대상에서 빠졌다 들어왔다 하게 된다.
+      isRocket: sql`(${products.isRocket} OR ${values.isRocket})`,
       isFreeShipping: values.isFreeShipping,
       isActive: true,
       deactivatedAt: null,
