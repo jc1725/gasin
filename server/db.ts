@@ -1670,6 +1670,17 @@ export async function deactivateStaleProductsForSource(source: ProductSource, fr
   return { deactivatedCount: getAffectedRows(result) };
 }
 
+/** 카테고리별 마지막 카테고리 베스트 수집 시각. 매일 갱신 스케줄이 오늘 처리했는지 판단할 때 쓴다. */
+export async function getCategoryBestCollectedAtByCategory() {
+  const db = await getDb();
+  if (!db) throw new Error("Database is unavailable");
+  const rows = await db
+    .select({ categoryId: categoryBestProducts.categoryId, collectedAt: sql<Date>`MAX(${categoryBestProducts.collectedAt})` })
+    .from(categoryBestProducts)
+    .groupBy(categoryBestProducts.categoryId);
+  return new Map(rows.map(row => [row.categoryId, new Date(row.collectedAt)]));
+}
+
 export async function replaceCategoryBestProducts(categoryId: number, productIds: number[]) {
   const db = await getDb();
   if (!db) throw new Error("Database is unavailable");

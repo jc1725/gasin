@@ -319,7 +319,10 @@ export async function runGoldBoxDailySchedule(now: Date = new Date()) {
   }
 }
 
-export async function collectBestCategoryProducts() {
+export async function collectBestCategoryProducts(
+  categoryIds: readonly number[] = COUPANG_BEST_CATEGORY_IDS,
+  onCategoryDone?: (categoryId: number) => void,
+) {
   return runTrackedJob("bestcategory", async () => {
     const quota = await db.getSearchApiQuotaStatus();
     if (!quota.allowed && quota.reason === "emergency-block") {
@@ -327,20 +330,79 @@ export async function collectBestCategoryProducts() {
     }
     let savedCount = 0;
     let categoriesUpdated = 0;
-    // 공식 19개 카테고리 요청은 전역 분당 46회 예산 내에서 3개씩 실행합니다.
-    for (let index = 0; index < COUPANG_BEST_CATEGORY_IDS.length; index += 3) {
-      const categoryIds = COUPANG_BEST_CATEGORY_IDS.slice(index, index + 3);
-      const fetched = await Promise.all(categoryIds.map(async categoryId => ({ categoryId, offers: await getBestCategoryProducts(categoryId, 4) })));
-      for (const { categoryId, offers } of fetched) {
-        const saved = await db.upsertCoupangProducts(offers, "bestcategory");
-        await db.replaceCategoryBestProducts(categoryId, saved.map(product => product.id));
-        savedCount += saved.length;
-        categoriesUpdated += 1;
+    // 2026-10-01: 카테고리를 하나씩 처리한다. 예전처럼 3개를 동시에 부르다 하나가 분당
+    // 한도에 걸리면 같은 묶음의 성공 결과까지 버려졌다. 한도에 걸리면 거기서 멈추고,
+    // 이미 저장한 카테고리는 완료로 남긴다(다음 실행이 나머지를 이어받는다).
+    for (const categoryId of categoryIds) {
+      let offers: Awaited<ReturnType<typeof getBestCategoryProducts>>;
+      try {
+        offers = await getBestCategoryProducts(categoryId, 4);
+      } catch (error) {
+        if (error instanceof CoupangRateLimitError && categoriesUpdated > 0) break;
+        throw error;
       }
+      const saved = await db.upsertCoupangProducts(offers, "bestcategory");
+      await db.replaceCategoryBestProducts(categoryId, saved.map(product => product.id));
+      onCategoryDone?.(categoryId);
+      savedCount += saved.length;
+      categoriesUpdated += 1;
     }
     await db.markScheduleCompleted("bestcategory");
-    return { processedCount: savedCount, detail: `공식 카테고리 베스트 ${categoriesUpdated}개 카테고리에서 ${savedCount}개 상품을 갱신했습니다. 실제 구매량 수치는 제공되지 않아 화면에는 카테고리 베스트로 표시합니다.` } satisfies JobOutcome;
+    return { processedCount: savedCount, detail: `공식 카테고리 베스트 ${categoriesUpdated}/${categoryIds.length}개 카테고리에서 ${savedCount}개 상품을 갱신했습니다. 실제 구매량 수치는 제공되지 않아 화면에는 카테고리 베스트로 표시합니다.` } satisfies JobOutcome;
   });
+}
+
+// ============================================================
+// 카테고리 베스트 매일 갱신 — 가격 갱신 heartbeat에 게이팅해서 얹는다
+// ------------------------------------------------------------
+// 2026-10-01: 홈 "카테고리 베스트 상품" 카드가 9월 16~17일 가격에 멈춰 있었다. 원인은
+// 이 작업을 부르는 곳이 /api/scheduled/bestcategory 하나뿐인데, 이 라우트는 Manus 전용
+// 크론 인증(authorizeJob)이라 Railway 이전 뒤로 한 번도 호출되지 않았다(최근 7일 요청 0건).
+// 골드박스·보존 작업은 2026-09-22에 heartbeat로 옮겼지만 이 작업만 빠져 있었다.
+//
+// 오전 9시(KST, 골드박스 8시와 겹치지 않게)부터 heartbeat마다 오늘 아직 갱신하지 않은
+// 카테고리를 최대 BEST_CATEGORY_BATCH_PER_RUN개씩 처리한다. 19개를 한 번에 부르면 같은 분에
+// 도는 가격 재확인과 분당 추적 예산(32회)을 다투므로, 몇 분에 나눠 끝낸다.
+// "오늘 갱신함"은 DB의 categoryBestProducts.collectedAt(재시작 후에도 유지)과, 빈 결과라
+// 행이 남지 않는 카테고리를 위한 메모리 기록 둘 중 하나로 판단한다.
+const BEST_CATEGORY_DAILY_RUN_HOUR_KST = 9;
+export const BEST_CATEGORY_BATCH_PER_RUN = 3;
+const bestCategoryDoneOnDay = new Map<number, string>();
+
+/** 테스트에서 실행 간 상태가 새지 않도록 초기화한다. */
+export function resetBestCategoryDailyState() {
+  bestCategoryDoneOnDay.clear();
+}
+
+function kstDayKeyOf(now: Date) {
+  const { year, month, day } = kstWallClock(now);
+  return `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+function todayKstThresholdUtc(now: Date, hourKst: number) {
+  const { year, month, day } = kstWallClock(now);
+  return new Date(Date.UTC(year, month, day, hourKst, 0, 0, 0) - KST_OFFSET_MS);
+}
+
+export async function runBestCategoryDailySchedule(now: Date = new Date()) {
+  const { hour } = kstWallClock(now);
+  if (hour < BEST_CATEGORY_DAILY_RUN_HOUR_KST) return { ran: false, reason: "오전 9시 전이라 대기" } as const;
+  const today = kstDayKeyOf(now);
+  const threshold = todayKstThresholdUtc(now, BEST_CATEGORY_DAILY_RUN_HOUR_KST).getTime();
+  try {
+    const collectedAtByCategory = await db.getCategoryBestCollectedAtByCategory();
+    const due = COUPANG_BEST_CATEGORY_IDS.filter(categoryId => {
+      if (bestCategoryDoneOnDay.get(categoryId) === today) return false;
+      const collectedAt = collectedAtByCategory.get(categoryId);
+      return !collectedAt || collectedAt.getTime() < threshold;
+    }).slice(0, BEST_CATEGORY_BATCH_PER_RUN);
+    if (due.length === 0) return { ran: false, reason: "오늘 카테고리 베스트 갱신 완료" } as const;
+    const result = await collectBestCategoryProducts(due, categoryId => bestCategoryDoneOnDay.set(categoryId, today));
+    return { ran: true, result } as const;
+  } catch (error) {
+    logError("bestcategory_daily_schedule_failed", "external_cron", error, { endpoint: "bestcategory-daily" });
+    return { ran: true, error: error instanceof Error ? error.message : "Unknown error" } as const;
+  }
 }
 
 export async function refreshTrackedPrices() {

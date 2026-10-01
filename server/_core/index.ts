@@ -11,7 +11,7 @@ import { serveStatic, setupVite } from "./vite";
 import { registerGoogleOAuthRoutes } from "../googleAuth";
 import { registerKakaoOAuthRoutes } from "../kakaoAuth";
 import { registerPriceAlertRoutes } from "../priceAlertRoutes";
-import { registerScheduledJobRoutes, refreshDeferredSearchPrices, runGoldBoxDailySchedule, runRetentionDailySchedule } from "../scheduledJobs";
+import { registerScheduledJobRoutes, refreshDeferredSearchPrices, runBestCategoryDailySchedule, runGoldBoxDailySchedule, runRetentionDailySchedule } from "../scheduledJobs";
 import { registerCollectionRoutes } from "../collectionRoutes";
 import { registerWebPushConfigRoutes } from "../webPushConfigRoutes";
 import { registerExternalPriceRefreshRoute, registerExternalFavoritesRefreshRoute } from "../externalPriceRefresh";
@@ -72,6 +72,9 @@ async function startServer() {
       // 비활성화된 지 90일 넘은 상품 삭제)도 같은 이유로 이 heartbeat에 게이팅해
       // 얹는다 — runGoldBoxDailySchedule과 마찬가지로 절대 throw하지 않는다.
       runRetentionDailySchedule(),
+      // 2026-10-01: 카테고리 베스트도 Manus 전용 크론 라우트에만 묶여 있어 이전 뒤로 한 번도
+      // 돌지 않았다. 같은 방식으로 얹는다(오전 9시부터 몇 분에 나눠 처리, 절대 throw하지 않음).
+      runBestCategoryDailySchedule(),
     ]);
     return priceResult;
   });
