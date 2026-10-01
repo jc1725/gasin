@@ -2338,29 +2338,42 @@ export const SEARCH_RECHECK_MISS_DELAY_MS = SEARCH_REFRESH_INTERVAL_MS;
  */
 export const AWAITING_COLLECTION_RETRY_AFTER_MS = 7 * 24 * 60 * 60 * 1000;
 
+/**
+ * 2026-10-01: 한 번의 UPDATE에 추적 중인 search 상품 ID를 전부 IN 절로 넣고 있었다.
+ * 상품이 1만 8천 개를 넘어가면서 자리표시자가 2만 7천 개가 넘는 쿼리가 만들어졌고,
+ * 그 쿼리가 실패하면서 3분마다 도는 가격 갱신 작업이 통째로 죽고 있었다(Railway
+ * 로그의 external_price_refresh_failed가 연속으로 찍힌 원인). 가격 재확인도, 딥링크
+ * 생성도, 수집기 자동 순회가 쓰는 대기열 갱신도 전부 이 한 줄에서 멈춰 있었다.
+ * 이제 배치로 쪼개서 실행한다.
+ */
+export const DEFER_REFRESH_ID_CHUNK_SIZE = 500;
+
 export async function deferSearchProductRefresh(productIds: number[], now = new Date()) {
   if (productIds.length === 0) return 0;
   const db = await getDb();
   if (!db) return 0;
   const refreshBefore = new Date(now.getTime() - SEARCH_REFRESH_INTERVAL_MS);
   const awaitingRetryBefore = new Date(now.getTime() - AWAITING_COLLECTION_RETRY_AFTER_MS);
-  await db
-    .update(products)
-    .set({
-      refreshState: "deferred",
-      lastRefreshReason: sql`CASE WHEN ${products.refreshState} = 'deferred' THEN ${products.lastRefreshReason} ELSE ${SEARCH_REFRESH_DEFERRED_REASON} END`,
-      nextRefreshAt: sql`COALESCE(${products.nextRefreshAt}, ${now})`,
-    })
-    .where(and(
-      eq(products.source, "search"),
-      inArray(products.id, productIds),
-      lte(products.lastSeenAt, refreshBefore),
-      or(
-        ne(products.refreshState, "awaiting_collection"),
-        isNull(products.lastRefreshAttemptAt),
-        lte(products.lastRefreshAttemptAt, awaitingRetryBefore),
-      ),
-    ));
+  for (let offset = 0; offset < productIds.length; offset += DEFER_REFRESH_ID_CHUNK_SIZE) {
+    const chunk = productIds.slice(offset, offset + DEFER_REFRESH_ID_CHUNK_SIZE);
+    await db
+      .update(products)
+      .set({
+        refreshState: "deferred",
+        lastRefreshReason: sql`CASE WHEN ${products.refreshState} = 'deferred' THEN ${products.lastRefreshReason} ELSE ${SEARCH_REFRESH_DEFERRED_REASON} END`,
+        nextRefreshAt: sql`COALESCE(${products.nextRefreshAt}, ${now})`,
+      })
+      .where(and(
+        eq(products.source, "search"),
+        inArray(products.id, chunk),
+        lte(products.lastSeenAt, refreshBefore),
+        or(
+          ne(products.refreshState, "awaiting_collection"),
+          isNull(products.lastRefreshAttemptAt),
+          lte(products.lastRefreshAttemptAt, awaitingRetryBefore),
+        ),
+      ));
+  }
   return productIds.length;
 }
 
@@ -3313,6 +3326,20 @@ export async function startSyncRun(jobType: SyncJobType) {
   return Number((result as unknown as [{ insertId: number }])[0].insertId);
 }
 
+/**
+ * syncRuns.detail은 text(64KB)다. 2026-10-01에 실패 사유로 거대한 쿼리 문자열이
+ * 통째로 들어오면서(자리표시자 2만 7천 개짜리 UPDATE문) 이 기록 자체가 또 실패했고,
+ * 그 바람에 진짜 원인이 로그에서 두 겹으로 가려졌다. 기록은 어떤 경우에도 실패하면
+ * 안 되므로 길이를 잘라서 저장한다.
+ */
+export const SYNC_RUN_DETAIL_MAX_LENGTH = 4_000;
+
+export function truncateSyncRunDetail(detail: string | undefined) {
+  if (!detail) return null;
+  if (detail.length <= SYNC_RUN_DETAIL_MAX_LENGTH) return detail;
+  return `${detail.slice(0, SYNC_RUN_DETAIL_MAX_LENGTH)}… (${detail.length.toLocaleString("ko-KR")}자 중 앞부분만 기록)`;
+}
+
 export async function finishSyncRun(
   id: number,
   status: "success" | "failed",
@@ -3323,7 +3350,7 @@ export async function finishSyncRun(
   if (!db) return;
   await db
     .update(syncRuns)
-    .set({ status, processedCount, detail: detail ?? null, finishedAt: new Date() })
+    .set({ status, processedCount, detail: truncateSyncRunDetail(detail), finishedAt: new Date() })
     .where(eq(syncRuns.id, id));
 }
 
