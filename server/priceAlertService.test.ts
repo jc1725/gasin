@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   sendPriceAlertEmail: vi.fn(),
   sendTargetPricePushNotification: vi.fn(),
   buildPriceAlertUnsubscribeUrl: vi.fn(),
+  getProductGroupSummary: vi.fn(),
 }));
 
 vi.mock("./db", () => ({
@@ -27,6 +28,7 @@ vi.mock("./db", () => ({
   claimTargetPriceAlertDelivery: mocks.claimTargetPriceAlertDelivery,
   completeTargetPriceAlertDelivery: mocks.completeTargetPriceAlertDelivery,
   failTargetPriceAlertDelivery: mocks.failTargetPriceAlertDelivery,
+  getProductGroupSummary: mocks.getProductGroupSummary,
 }));
 vi.mock("./gmailSender", async importOriginal => {
   const actual = await importOriginal<typeof import("./gmailSender")>();
@@ -51,6 +53,9 @@ describe("확장 프로그램 와우 회원가 알림", () => {
     mocks.sendPriceAlertEmail.mockResolvedValue({ messageId: "smtp-id" });
     mocks.sendTargetPricePushNotification.mockResolvedValue({ sent: 0, expired: 0, failed: 0 });
     mocks.buildPriceAlertUnsubscribeUrl.mockReturnValue("https://gasyn.example/unsubscribe");
+    // 2026-10-01: 기본값은 "같은 제품을 파는 다른 판매자가 없음"이다. 아래 전용 테스트에서만
+    // 더 싼 판매자를 돌려주도록 덮어쓴다.
+    mocks.getProductGroupSummary.mockResolvedValue({ memberCount: 1, sellerCount: 1, lowestPrice: null, lowestProduct: null });
   });
 
   it("공식 API 현재가가 달라도 신선한 확장 프로그램 회원가만으로 최저가 알림을 보낸다", async () => {
@@ -58,6 +63,36 @@ describe("확장 프로그램 와우 회원가 알림", () => {
     expect(result).toMatchObject({ eligibleProducts: 1, sent: 1 });
     expect(mocks.claimPriceAlertDelivery).toHaveBeenCalledWith(expect.objectContaining({ currentPrice: 12_900, lowestPrice24h: 12_900 }));
     expect(mocks.sendPriceAlertEmail).toHaveBeenCalledWith(expect.objectContaining({ currentPrice: 12_900, checkedAt: observedAt }));
+  });
+
+  // 2026-10-01: 추적 단위를 제품(상품명 + 용량 + 수량)으로 올린 뒤, 알림을 받고 눌렀더니
+  // 같은 제품이 다른 판매자 쪽에서 더 쌌다는 상황을 만들지 않는다.
+  it("같은 제품을 더 싸게 파는 판매자가 있으면 그쪽 딥링크로 보낸다", async () => {
+    mocks.getProductGroupSummary.mockResolvedValue({
+      memberCount: 2,
+      sellerCount: 2,
+      lowestPrice: 11_900,
+      lowestProduct: { id: 77, currentPrice: 11_900, deepLinkUrl: "https://link.coupang.com/a/cheaper" },
+    });
+    await expect(checkAndSendExtensionPriceAlerts([42])).resolves.toMatchObject({ sent: 1 });
+    expect(mocks.sendPriceAlertEmail).toHaveBeenCalledWith(expect.objectContaining({ affiliateUrl: "https://link.coupang.com/a/cheaper" }));
+  });
+
+  it("더 싼 판매자에게 딥링크가 아직 없으면 원래 상품 링크를 그대로 쓴다", async () => {
+    mocks.getProductGroupSummary.mockResolvedValue({
+      memberCount: 2,
+      sellerCount: 2,
+      lowestPrice: 11_900,
+      lowestProduct: { id: 77, currentPrice: 11_900, deepLinkUrl: null },
+    });
+    await expect(checkAndSendExtensionPriceAlerts([42])).resolves.toMatchObject({ sent: 1 });
+    expect(mocks.sendPriceAlertEmail).toHaveBeenCalledWith(expect.objectContaining({ affiliateUrl: "https://link.coupang.com/a/ready" }));
+  });
+
+  it("그룹 최저가 조회가 실패해도 알림은 그대로 나간다", async () => {
+    mocks.getProductGroupSummary.mockRejectedValue(new Error("db unavailable"));
+    await expect(checkAndSendExtensionPriceAlerts([42])).resolves.toMatchObject({ sent: 1 });
+    expect(mocks.sendPriceAlertEmail).toHaveBeenCalledWith(expect.objectContaining({ affiliateUrl: "https://link.coupang.com/a/ready" }));
   });
 
   it("7일을 넘긴 관측은 목표가를 만족해도 알림을 보내지 않는다", async () => {

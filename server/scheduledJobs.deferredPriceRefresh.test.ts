@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  startSyncRun: vi.fn(), finishSyncRun: vi.fn(), listAllTrackedProducts: vi.fn(), deferSearchProductRefresh: vi.fn(), getSearchApiQuotaStatus: vi.fn(), getDeferredSearchProducts: vi.fn(), recordDeferredSearchRecheckMiss: vi.fn(), recordDeferredSearchRecheckError: vi.fn(), recordPriceTrackingMetric: vi.fn(), markScheduleCompleted: vi.fn(), searchCatalogSafely: vi.fn(), generatePendingDeepLinks: vi.fn(),
+  startSyncRun: vi.fn(), finishSyncRun: vi.fn(), listAllTrackedProducts: vi.fn(), deferSearchProductRefresh: vi.fn(), getSearchApiQuotaStatus: vi.fn(), getDeferredSearchProducts: vi.fn(), recordDeferredSearchRecheckMiss: vi.fn(), recordDeferredSearchRecheckError: vi.fn(), recordPriceTrackingMetric: vi.fn(), markScheduleCompleted: vi.fn(), backfillProductGroupKeys: vi.fn(), searchCatalogSafely: vi.fn(), generatePendingDeepLinks: vi.fn(),
 }));
 
-vi.mock("./db", () => ({ startSyncRun: mocks.startSyncRun, finishSyncRun: mocks.finishSyncRun, listAllTrackedProducts: mocks.listAllTrackedProducts, deferSearchProductRefresh: mocks.deferSearchProductRefresh, getSearchApiQuotaStatus: mocks.getSearchApiQuotaStatus, getDeferredSearchProducts: mocks.getDeferredSearchProducts, recordDeferredSearchRecheckMiss: mocks.recordDeferredSearchRecheckMiss, recordDeferredSearchRecheckError: mocks.recordDeferredSearchRecheckError, recordPriceTrackingMetric: mocks.recordPriceTrackingMetric, markScheduleCompleted: mocks.markScheduleCompleted }));
+vi.mock("./db", () => ({ startSyncRun: mocks.startSyncRun, finishSyncRun: mocks.finishSyncRun, listAllTrackedProducts: mocks.listAllTrackedProducts, deferSearchProductRefresh: mocks.deferSearchProductRefresh, getSearchApiQuotaStatus: mocks.getSearchApiQuotaStatus, getDeferredSearchProducts: mocks.getDeferredSearchProducts, recordDeferredSearchRecheckMiss: mocks.recordDeferredSearchRecheckMiss, recordDeferredSearchRecheckError: mocks.recordDeferredSearchRecheckError, recordPriceTrackingMetric: mocks.recordPriceTrackingMetric, markScheduleCompleted: mocks.markScheduleCompleted, backfillProductGroupKeys: mocks.backfillProductGroupKeys }));
 vi.mock("./catalogSearch", () => ({ searchCatalogSafely: mocks.searchCatalogSafely }));
 vi.mock("./coupang", () => ({ COUPANG_BEST_CATEGORY_IDS: [], getBestCategoryProducts: vi.fn(), getCoupangVariantKey: vi.fn(), getGoldBoxProducts: vi.fn() }));
 vi.mock("./deepLinks", () => ({ generatePendingDeepLinks: mocks.generatePendingDeepLinks }));
@@ -21,6 +21,8 @@ describe("deferred search price refresh job", () => {
     mocks.deferSearchProductRefresh.mockResolvedValue(1);
     mocks.getSearchApiQuotaStatus.mockResolvedValue({ allowed: true });
     mocks.generatePendingDeepLinks.mockResolvedValue({ processedCount: 1, detail: "새 딥링크 1개를 저장했습니다." });
+    // 2026-10-01: 제품 그룹키 백필은 이 3분 주기 작업에 얹혀 있다(server/db.ts).
+    mocks.backfillProductGroupKeys.mockResolvedValue({ scannedCount: 0, updatedCount: 0, remaining: false });
     mocks.getDeferredSearchProducts.mockResolvedValue([
       { id: 41, externalProductId: "41:11:22", name: "가격 갱신 상품 A", variantLabel: "혼합색상", unitLabel: "20cm", quantity: 1 },
       { id: 42, externalProductId: "42:33:44", name: "가격 갱신 상품 B" },

@@ -281,6 +281,20 @@
       "when": 1788536371899,
       "tag": "0039_jazzy_the_hand",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "5",
+      "when": 1790040329354,
+      "tag": "0040_regular_winter_soldier",
+      "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "5",
+      "when": 1790826550404,
+      "tag": "0041_product_group_key",
+      "breakpoints": true
     }
   ]
 }

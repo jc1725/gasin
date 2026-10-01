@@ -25,6 +25,9 @@ describe("관리자 옵션 수정 시 unitPrice(단위가격) 재계산", () => 
 
     // 재계산된 unitPrice가 실제로 update 대상에 포함되어야 한다 — 예전엔 unitLabel만
     // set하고 unitPrice는 손대지 않아서 옛 값이 그대로 남는 버그가 있었다.
-    expect(body).toMatch(/\.set\(\{[^}]*unitPrice[^}]*\}\)/);
+    // 2026-10-01: 제품 그룹키를 붙이는 withMergedProductGroupKey 래퍼를 통과하도록 바뀌었다.
+    // 래퍼 이름까지 함께 확인해서, 갱신 객체가 그룹키 계산을 건너뛰고 .set()으로 바로
+    // 들어가는 회귀도 같이 잡는다.
+    expect(body).toMatch(/\.set\(withMergedProductGroupKey\([^;]*unitPrice[^;]*\)\)/);
   });
 });

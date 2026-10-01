@@ -11,6 +11,24 @@ function buildAlertPurchaseUrl(product: { id: number; deepLinkUrl: string | null
   return product.deepLinkUrl ?? `${ENV.appBaseUrl}/product/${product.id}`;
 }
 
+/**
+ * 2026-10-01: 같은 제품(상품명 + 용량 + 수량)을 더 싸게 파는 판매자가 있으면 알림의 구매
+ * 링크를 그쪽으로 보낸다. 알림을 받고 눌렀더니 같은 제품이 다른 판매자 쪽에서 더 쌌다는
+ * 상황을 만들지 않기 위한 것이다. 더 싼 쪽에 파트너스 딥링크가 아직 없으면(쿠팡 접속은
+ * 딥링크로만 한다) 원래 상품 링크를 그대로 쓴다.
+ */
+async function buildGroupAwareAlertPurchaseUrl(product: { id: number; deepLinkUrl: string | null; familyVariantKey: string | null; currentPrice: number; inStock: boolean }, observedPrice: number) {
+  try {
+    const group = await db.getProductGroupSummary(product);
+    const cheaper = group.lowestProduct;
+    if (cheaper && cheaper.deepLinkUrl && cheaper.currentPrice < observedPrice) return cheaper.deepLinkUrl;
+  } catch (error) {
+    // 그룹 조회가 실패해도 알림 자체는 반드시 나가야 한다.
+    console.warn(`[Price alert] 제품 그룹 최저가 조회 실패 (상품 ${product.id})`, error);
+  }
+  return buildAlertPurchaseUrl(product);
+}
+
 export function is24hLowestPrice(currentPrice: number, lowestPrice24h: number | null) {
   return Number.isInteger(currentPrice) && currentPrice > 0 && lowestPrice24h !== null && currentPrice <= lowestPrice24h;
 }
@@ -46,6 +64,7 @@ export async function checkAndSendExtensionPriceAlerts(productIds: number[], now
     const currentPrice = observation.price;
     const lowestPrice24h = await db.get24hLowestExtensionPrice(product.id, now);
     const recipients = await db.listPriceAlertRecipients(product.id);
+    const purchaseUrl = await buildGroupAwareAlertPurchaseUrl(product, currentPrice);
     const isLowest24h = is24hLowestPrice(currentPrice, lowestPrice24h);
     let hasEligibleRecipient = false;
 
@@ -74,7 +93,7 @@ export async function checkAndSendExtensionPriceAlerts(productIds: number[], now
             currentPrice,
             lowestPrice24h: lowestPrice24h ?? currentPrice,
             checkedAt: observation.observedAt,
-            affiliateUrl: buildAlertPurchaseUrl(product),
+            affiliateUrl: purchaseUrl,
             unsubscribeUrl: buildPriceAlertUnsubscribeUrl(recipient),
             alertKind: "target_price",
             targetPrice: recipient.targetPrice,
@@ -121,7 +140,7 @@ export async function checkAndSendExtensionPriceAlerts(productIds: number[], now
           currentPrice,
           lowestPrice24h,
           checkedAt: observation.observedAt,
-          affiliateUrl: buildAlertPurchaseUrl(product),
+          affiliateUrl: purchaseUrl,
           unsubscribeUrl: buildPriceAlertUnsubscribeUrl(recipient),
         });
         await db.completePriceAlertDelivery(alertLogId);

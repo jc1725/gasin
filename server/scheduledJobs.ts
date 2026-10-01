@@ -74,6 +74,7 @@ async function recheckDeferredSearchProductsForPriceJob() {
   let matchedCount = 0;
   let unmatchedCount = 0;
   let collectorTrustedCount = 0;
+  let groupCoveredCount = 0;
   let apiErrorCount = 0;
   const refreshedProducts = [] as Awaited<ReturnType<typeof searchCatalogSafely>> extends { products: infer Products } ? Products extends Array<infer Product> ? Product[] : never : never;
 
@@ -123,6 +124,11 @@ async function recheckDeferredSearchProductsForPriceJob() {
     if (outcome === "collector_trusted") {
       collectorTrustedCount += 1;
       await db.recordPriceTrackingMetric({ productId: candidate.id, source: "search", outcome: "collector_resolved", apiCalls, durationMs: Date.now() - metricStartedAt });
+    } else if (outcome === "group_covered") {
+      // 2026-10-01: 이 SKU는 못 찾았지만 같은 제품을 파는 다른 판매자 행이 정상 갱신 중이라
+      // 제품 가격은 끊기지 않았다. 미일치로 세면 "해결해야 할 문제"가 실제보다 커 보인다.
+      groupCoveredCount += 1;
+      await db.recordPriceTrackingMetric({ productId: candidate.id, source: "search", outcome: "group_covered", apiCalls, durationMs: Date.now() - metricStartedAt });
     } else {
       unmatchedCount += 1;
       await db.recordPriceTrackingMetric({ productId: candidate.id, source: "search", outcome: "unmatched", apiCalls, durationMs: Date.now() - metricStartedAt });
@@ -133,7 +139,8 @@ async function recheckDeferredSearchProductsForPriceJob() {
     processedCount: attemptedCount,
     refreshedProducts,
     collectorTrustedCount,
-    detail: `검색 상품 ${attemptedCount}개 재확인: fresh ${matchedCount}개 · 수집기 관측 유지 ${collectorTrustedCount}개 · 정확 SKU 미일치 ${unmatchedCount}개 · API 오류 재시도 대기 ${apiErrorCount}개`,
+    groupCoveredCount,
+    detail: `검색 상품 ${attemptedCount}개 재확인: fresh ${matchedCount}개 · 수집기 관측 유지 ${collectorTrustedCount}개 · 같은 제품 다른 판매자가 대체 ${groupCoveredCount}개 · 정확 SKU 미일치 ${unmatchedCount}개 · API 오류 재시도 대기 ${apiErrorCount}개`,
   };
 }
 
@@ -388,11 +395,16 @@ export async function refreshDeferredSearchPrices() {
     // (실패했던 URL을 재사용하지 않는다는 기존 원칙은 generateDeepLinksForProducts 안에서
     // 그대로 유지된다.)
     const deepLinkBatch = await generatePendingDeepLinks();
+    // 2026-10-01: 제품 그룹키(familyVariantKey)는 새로 추가한 컬럼이라 기존 행이 전부
+    // 비어 있다. 관리자가 버튼을 눌러야만 채워지는 구조로 두면 "눌렀는지 아닌지"에 따라
+    // 묶음이 반쯤 동작하는 상태가 생기므로, 이미 3분마다 확실히 도는 이 작업에 배치로
+    // 얹어서 저절로 끝나게 한다(다 채워지면 조회 한 번으로 끝난다).
+    const groupKeyBatch = await db.backfillProductGroupKeys();
     await db.markScheduleCompleted("price");
     return {
       processedCount: outcome.processedCount,
       skipped: outcome.skipped,
-      detail: `${outcome.detail}. ${deepLinkBatch.detail}. 공식 API 기본가는 표시용이며 알림에는 사용하지 않습니다. 검색 등록 ${searchTrackedProductIds.length}개 중 마지막 확인이 24시간 지난 상품을 오래된 순으로 최대 ${PRICE_REFRESH_SEARCH_BATCH_SIZE}개 처리합니다.`,
+      detail: `${outcome.detail}. ${deepLinkBatch.detail}.${groupKeyBatch.updatedCount > 0 ? ` 제품 그룹키 ${groupKeyBatch.updatedCount}개 보완${groupKeyBatch.remaining ? "(남은 행 있음)" : "(완료)"}.` : ""} 공식 API 기본가는 표시용이며 알림에는 사용하지 않습니다. 검색 등록 ${searchTrackedProductIds.length}개 중 마지막 확인이 24시간 지난 상품을 오래된 순으로 최대 ${PRICE_REFRESH_SEARCH_BATCH_SIZE}개 처리합니다.`,
     } satisfies JobOutcome;
   });
 }

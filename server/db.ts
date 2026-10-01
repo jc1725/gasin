@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, like, lt, lte, ne, notInArray, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, gte, inArray, isNotNull, isNull, like, lt, lte, ne, notInArray, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   categoryBestProducts,
@@ -26,7 +26,7 @@ import {
   webPushSubscriptions,
 } from "../drizzle/schema";
 import { getCoupangVariantKey, type CoupangProduct } from "./coupang";
-import { describeProductVariant, getProductFamilyKey } from "./productVariant";
+import { describeProductVariant, getProductFamilyKey, isUngroupedProductKey, resolveStoredProductGroupKey, withMergedProductGroupKey, withProductGroupKey } from "./productVariant";
 import type { ParsedCoupangLink } from "./manualLink";
 import { decideSearchQuota, SEARCH_API_MAX_CALLS_PER_MINUTE, type SearchQuotaSnapshot } from "./searchQuota";
 import { COUPANG_TRACKING_MAX_CALLS_PER_MINUTE, decideCoupangRateLimit, type CoupangApiCallType, type CoupangRateLimitSnapshot } from "./coupangRateLimit";
@@ -36,7 +36,7 @@ import type { UserConfirmedPriceCsvRow } from "./userConfirmedPriceCsv";
 import type { AdminOptionCsvRow } from "./adminOptionCsv";
 import { ENV } from './_core/env';
 import { createHash } from "node:crypto";
-import { selectCheapestPerFamilyUnit, selectRepresentativesPerFamily } from "./productDedupe";
+import { selectCheapestPerProductGroupByRecency, selectRepresentativesPerFamily } from "./productDedupe";
 import { getSafeMergeDirection, listSafeMergeCandidates } from "./productMerge";
 import { buildPriceRefreshStats } from "./priceRefreshStats";
 import { getSearchTokenVariants, getSearchTokens, rankSearchResults } from "./searchRelevance";
@@ -114,7 +114,7 @@ export type WebPushSubscriptionInput = {
 
 export type StoredWebPushSubscription = WebPushSubscriptionInput & { id: number; userId: number };
 
-export type DeferredSearchRecheckMissOutcome = "awaiting_collection" | "collector_trusted";
+export type DeferredSearchRecheckMissOutcome = "awaiting_collection" | "collector_trusted" | "group_covered";
 
 /**
  * 2026-09-29: 수집기 관측 신뢰 기간을 7일에서 30일로 늘렸다. 공식 Search API는 정확 SKU를
@@ -516,7 +516,7 @@ export async function recordCollectedPriceItems(items: CollectedPriceInput[]) {
           : undefined;
         if (legacySearchProduct) {
           await recordCollectorResolutionMetric(tx, legacySearchProduct, item.collectedAt);
-          const legacyMetadata = {
+          const legacyMetadata = withProductGroupKey({
             externalProductId: collectionKey,
             name: collectionName || legacySearchProduct.name,
             affiliateUrl: collectedExactSkuUrl || legacySearchProduct.affiliateUrl,
@@ -545,7 +545,7 @@ export async function recordCollectedPriceItems(items: CollectedPriceInput[]) {
             lastSeenAt: item.collectedAt,
             inStock: item.inStock,
             ...(item.inStock && effectivePrice > 0 ? { wowMemberPrice: effectivePrice, wowMemberPriceObservedAt: item.collectedAt } : {}),
-          };
+          });
           if (!item.inStock || effectivePrice <= 0) {
             await tx.update(products).set(legacyMetadata).where(eq(products.id, legacySearchProduct.id));
           } else {
@@ -568,7 +568,10 @@ export async function recordCollectedPriceItems(items: CollectedPriceInput[]) {
         }
         let created: { id: number } | undefined;
         try {
-          [created] = await tx.insert(products).values({
+          // 2026-10-01: withProductGroupKey는 제네릭이라 객체 리터럴을 그대로 넘기면 source 같은
+          // enum 값이 string으로 넓어져 insert 타입과 맞지 않는다. 삽입 타입을 먼저 달아
+          // 리터럴 타입을 유지한다.
+          const newCollectorProduct: typeof products.$inferInsert = {
             externalProductId: collectionKey,
             name: collectionName,
             imageUrl: item.imageUrl?.trim() ?? "",
@@ -603,7 +606,8 @@ export async function recordCollectedPriceItems(items: CollectedPriceInput[]) {
             isActive: true,
             firstSeenAt: item.collectedAt,
             lastSeenAt: item.collectedAt,
-          }).$returningId();
+          };
+          [created] = await tx.insert(products).values(withProductGroupKey(newCollectorProduct)).$returningId();
         } catch (error) {
           // 같은 상품을 다른 /api/collect 요청(동시 배치 전송, 수동 동기화 + 5분
           // 자동 동기화 겹침 등)이 이 트랜잭션보다 먼저 커밋해 externalProductId
@@ -691,7 +695,8 @@ export async function recordCollectedPriceItems(items: CollectedPriceInput[]) {
       }
       await recordCollectorResolutionMetric(tx, current, item.collectedAt);
       const canReplaceMetadata = collectedOptionIsCompatible && (current.optionMetadataSource === "collection" || !current.variantLabel || !current.unitLabel || !current.quantity);
-      const latestMetadata = {
+      const latestMetadata = withProductGroupKey({
+        externalProductId: collectionKey,
         name: collectionName || current.name,
         affiliateUrl: collectedExactSkuUrl || current.affiliateUrl,
         imageUrl: item.imageUrl?.trim() || current.imageUrl,
@@ -720,7 +725,7 @@ export async function recordCollectedPriceItems(items: CollectedPriceInput[]) {
         isActive: true,
         deactivatedAt: null,
         ...(item.inStock && effectivePrice > 0 ? { wowMemberPrice: effectivePrice, wowMemberPriceObservedAt: item.collectedAt } : {}),
-      };
+      });
       if (!item.inStock || effectivePrice <= 0) {
         await tx.update(products).set(latestMetadata).where(eq(products.id, current.id));
         await supersedeSearchSkusWithCollectorObservation(tx, current.id, collectionKey, item.collectedAt);
@@ -1147,13 +1152,13 @@ export async function listMissingOptionMetadataForAdmin(limit = 200) {
 export async function updateAdminProductOptionMetadata(productId: number, variantLabel: string | null, unitLabel: string | null, quantity: number | null = null) {
   const db = await getDb();
   if (!db) throw new Error("Database is unavailable");
-  const existing = (await db.select({ currentPrice: products.currentPrice, quantity: products.quantity })
+  const existing = (await db.select({ currentPrice: products.currentPrice, quantity: products.quantity, familyKey: products.familyKey, variantLabel: products.variantLabel, externalProductId: products.externalProductId })
     .from(products).where(and(eq(products.id, productId), eq(products.isActive, true))).limit(1))[0];
   const effectiveQuantity = quantity ?? existing?.quantity ?? 1;
   const unitPrice = unitLabel && existing && effectiveQuantity > 0
     ? Math.round(existing.currentPrice / effectiveQuantity)
     : null;
-  const result = await db.update(products).set({ variantLabel, unitLabel, quantity, unitPrice, optionMetadataSource: "manual" }).where(and(eq(products.id, productId), eq(products.isActive, true)));
+  const result = await db.update(products).set(withMergedProductGroupKey(existing ?? {}, { variantLabel, unitLabel, quantity, unitPrice, optionMetadataSource: "manual" as const })).where(and(eq(products.id, productId), eq(products.isActive, true)));
   return { productId, updated: getAffectedRows(result) > 0 };
 }
 
@@ -1520,7 +1525,7 @@ export async function upsertCoupangProduct(product: CoupangProduct, source: Prod
   const preserveUnitLabel = isProtectedMetadataSource && Boolean(existing.unitLabel);
   const preserveQuantity = isProtectedMetadataSource && existing.quantity !== null;
   const preservedQuantity = preserveQuantity ? existing!.quantity : variant.quantity;
-  const values = {
+  const values = withProductGroupKey({
     externalProductId,
     name: product.productName,
     imageUrl: product.productImage,
@@ -1552,7 +1557,7 @@ export async function upsertCoupangProduct(product: CoupangProduct, source: Prod
     nextRefreshAt: null,
     firstSeenAt: now,
     lastSeenAt: now,
-  };
+  });
 
   await db.insert(products).values(values).onDuplicateKeyUpdate({
     set: {
@@ -1561,6 +1566,7 @@ export async function upsertCoupangProduct(product: CoupangProduct, source: Prod
       affiliateUrl: values.affiliateUrl,
       categoryName: values.categoryName,
       familyKey: values.familyKey,
+      familyVariantKey: values.familyVariantKey,
       variantLabel: values.variantLabel,
       unitPrice: values.unitPrice,
       unitLabel: values.unitLabel,
@@ -1669,7 +1675,7 @@ export async function listHomeFeaturedProducts(limit = 50) {
     const stored = await db.select().from(products).where(and(inArray(products.id, orderedIds), eq(products.isActive, true)));
     const byId = new Map(stored.map(product => [product.id, product]));
     const ordered = orderedIds.flatMap(id => byId.get(id) ? [byId.get(id)!] : []);
-    const categoryBest = selectRepresentativesPerFamily(selectCheapestPerFamilyUnit(ordered), 2).slice(0, boundedLimit);
+    const categoryBest = selectRepresentativesPerFamily(selectCheapestPerProductGroupByRecency(ordered), 2).slice(0, boundedLimit);
     if (categoryBest.length > 0) return { products: categoryBest, source: "bestcategory" as const };
   }
   return { products: await listProducts({ source: "goldbox", limit: boundedLimit }), source: "goldbox" as const };
@@ -1682,7 +1688,7 @@ export async function listProducts(options: { source?: ProductSource; limit?: nu
   const rows = options.source
     ? await db.select().from(products).where(and(eq(products.source, options.source), eq(products.isActive, true))).orderBy(desc(products.lastSeenAt))
     : await db.select().from(products).where(eq(products.isActive, true)).orderBy(desc(products.lastSeenAt));
-  const unitDeduped = selectCheapestPerFamilyUnit(rows);
+  const unitDeduped = selectCheapestPerProductGroupByRecency(rows);
   // source를 지정하지 않는 메인 최근 상품 목록만 상품군당 대표 2개로 제한합니다.
   const mainRepresentatives = options.source ? unitDeduped : selectRepresentativesPerFamily(unitDeduped, 2);
   return mainRepresentatives.slice(0, limit);
@@ -2602,6 +2608,7 @@ export async function recordDeferredSearchRecheckMiss(productId: number, reason:
     deepLinkStatus: products.deepLinkStatus,
     deepLinkUrl: products.deepLinkUrl,
     lastSeenAt: products.lastSeenAt,
+    familyVariantKey: products.familyVariantKey,
   }).from(products).where(eq(products.id, productId)).limit(1))[0];
   if (product && hasTrustedExtensionSkuObservation(product, now)) {
     const hasStoredDeepLink = product.deepLinkStatus === "ready" && Boolean(product.deepLinkUrl);
@@ -2623,19 +2630,49 @@ export async function recordDeferredSearchRecheckMiss(productId: number, reason:
   // 계속 쓴다. 고객 구매 버튼은 refreshState가 awaiting_collection인 동안 클라이언트에서
   // 그대로 숨겨지므로(ProductDetail·AdminPrices의 needsPurchaseFallback) 잘못된 옵션으로
   // 이동시킬 위험은 없다.
+  // 2026-10-01: 추적 단위를 제품(상품명 + 용량 + 수량)으로 올린 뒤로는, 이 SKU를 못 찾아도
+  // 같은 제품을 파는 다른 판매자 행이 정상 갱신되고 있으면 그 제품의 가격은 살아 있다.
+  // 그런 상품까지 1일 간격으로 계속 다시 검색하면 Search API 예산만 태우므로, 재시도를
+  // 가장 긴 간격으로 미루고 수집기 관측에 맡긴다. 이 SKU 자체는 대표에서 밀려나므로
+  // (server/productDedupe.ts의 preferred) 확인되지 않은 가격이 화면에 올라오지는 않는다.
+  const groupCovered = await hasVerifiedGroupSibling(db, productId, product?.familyVariantKey ?? null);
   const keepsStoredDeepLink = product?.deepLinkStatus === "ready" && Boolean(product.deepLinkUrl);
   await db.update(products).set({
     refreshState: "awaiting_collection",
-    lastRefreshReason: `${reason} 가신 수집기에서 실제 옵션을 다시 관측하면 가격 추적을 재개합니다.`,
+    lastRefreshReason: groupCovered
+      ? `${reason} 같은 제품을 파는 다른 판매자 상품이 정상 갱신 중이라 그쪽 가격을 대표로 씁니다.`
+      : `${reason} 가신 수집기에서 실제 옵션을 다시 관측하면 가격 추적을 재개합니다.`,
     lastRefreshAttemptAt: now,
     // 2026-09-29: 같은 상품을 계속 다시 검색해 API 예산만 태우던 문제를 막기 위해,
     // 오래 못 찾은 상품일수록 다음 재시도를 멀리 잡는다(1일 → 3일 → 7일).
-    nextRefreshAt: new Date(now.getTime() + getUnmatchedRetryDelayMs(product?.lastSeenAt ?? null, now)),
+    nextRefreshAt: new Date(now.getTime() + (groupCovered ? GROUP_COVERED_RETRY_DELAY_MS : getUnmatchedRetryDelayMs(product?.lastSeenAt ?? null, now))),
     ...(keepsStoredDeepLink
       ? { deepLinkFailureReason: null }
       : { deepLinkStatus: "pending" as const, deepLinkUrl: null, deepLinkFailureReason: null, deepLinkUpdatedAt: now }),
   }).where(eq(products.id, productId));
-  return "awaiting_collection";
+  return groupCovered ? "group_covered" : "awaiting_collection";
+}
+
+/** 그룹이 대신 커버해 주는 상품의 재검색 간격. 미일치 백오프의 최대값과 같다. */
+export const GROUP_COVERED_RETRY_DELAY_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** 같은 제품 그룹에 "가격이 확인된 상태로 판매 중인" 다른 행이 있는지 본다. */
+async function hasVerifiedGroupSibling(db: NonNullable<Awaited<ReturnType<typeof getDb>>>, productId: number, familyVariantKey: string | null) {
+  const groupKey = familyVariantKey?.trim();
+  if (!groupKey || isUngroupedProductKey(groupKey)) return false;
+  const sibling = (await db
+    .select({ id: products.id })
+    .from(products)
+    .where(and(
+      eq(products.familyVariantKey, groupKey),
+      ne(products.id, productId),
+      eq(products.isActive, true),
+      eq(products.inStock, true),
+      ne(products.refreshState, "awaiting_collection"),
+      gt(products.currentPrice, 0),
+    ))
+    .limit(1))[0];
+  return Boolean(sibling);
 }
 
 /**
@@ -2723,11 +2760,49 @@ export async function backfillProductVariantMetadata() {
     });
     await db
       .update(products)
-      .set({ externalProductId, familyKey, variantLabel: variant.variantLabel, unitPrice: variant.unitPrice, unitLabel: variant.unitLabel })
+      .set(withProductGroupKey({ externalProductId, familyKey, variantLabel: variant.variantLabel, unitPrice: variant.unitPrice, unitLabel: variant.unitLabel, quantity: record.quantity }))
       .where(eq(products.id, record.id));
     updated += 1;
   }
   return updated;
+}
+
+/** 한 번에 그룹키를 채울 행 수. 3분 주기 작업에 얹어도 부담이 없는 크기로 잡는다. */
+export const PRODUCT_GROUP_KEY_BACKFILL_BATCH = 500;
+
+/**
+ * 2026-10-01: familyVariantKey가 아직 비어 있는 기존 행을 채운다.
+ *
+ * 컬럼을 새로 추가했기 때문에 기존 1만여 행은 전부 null이고, 그 상태로는 제품 단위
+ * 묶음이 동작하지 않는다. 한 번에 전부 훑으면 3분 주기 작업이 길어지므로 배치로 나눠
+ * 채우고, 호출 쪽에서 remaining을 보고 몇 주기 더 돌지 판단한다.
+ *
+ * resolveStoredProductGroupKey는 용량을 못 읽은 상품에도 SKU 기반 단독 그룹키를
+ * 돌려주므로(UNGROUPED_KEY_PREFIX) 한 번 처리한 행이 다시 조회 대상으로 돌아오지
+ * 않는다 — 같은 행을 영원히 다시 훑는 일이 생기지 않는다.
+ */
+export async function backfillProductGroupKeys(limit = PRODUCT_GROUP_KEY_BACKFILL_BATCH) {
+  const db = await getDb();
+  if (!db) return { scannedCount: 0, updatedCount: 0, remaining: false };
+  const rows = await db
+    .select({
+      id: products.id,
+      externalProductId: products.externalProductId,
+      familyKey: products.familyKey,
+      variantLabel: products.variantLabel,
+      quantity: products.quantity,
+    })
+    .from(products)
+    .where(isNull(products.familyVariantKey))
+    .limit(limit);
+  let updatedCount = 0;
+  for (const row of rows) {
+    const familyVariantKey = resolveStoredProductGroupKey(row);
+    if (!familyVariantKey) continue;
+    await db.update(products).set({ familyVariantKey }).where(eq(products.id, row.id));
+    updatedCount += 1;
+  }
+  return { scannedCount: rows.length, updatedCount, remaining: rows.length >= limit };
 }
 
 /**
@@ -2743,7 +2818,7 @@ export async function backfillMissingOptionMetadataFromNames() {
   const db = await getDb();
   if (!db) throw new Error("Database is unavailable");
   const records = await db
-    .select({ id: products.id, name: products.name, currentPrice: products.currentPrice, categoryName: products.categoryName })
+    .select({ id: products.id, name: products.name, currentPrice: products.currentPrice, categoryName: products.categoryName, familyKey: products.familyKey, externalProductId: products.externalProductId })
     .from(products)
     .where(and(
       eq(products.isActive, true),
@@ -2758,7 +2833,7 @@ export async function backfillMissingOptionMetadataFromNames() {
     if (!variant.variantLabel && !variant.unitLabel && variant.quantity == null) continue;
     await db
       .update(products)
-      .set({ variantLabel: variant.variantLabel, unitPrice: variant.unitPrice, unitLabel: variant.unitLabel, quantity: variant.quantity })
+      .set(withProductGroupKey({ familyKey: record.familyKey, externalProductId: record.externalProductId, variantLabel: variant.variantLabel, unitPrice: variant.unitPrice, unitLabel: variant.unitLabel, quantity: variant.quantity }))
       .where(eq(products.id, record.id));
     updatedCount += 1;
   }
@@ -2791,7 +2866,48 @@ export async function getProductDetail(productId: number) {
     .from(priceHistory)
     .where(and(eq(priceHistory.productId, productId), gte(priceHistory.recordedAt, ninetyDaysAgo)))
     .orderBy(priceHistory.recordedAt);
-  return { product, history };
+  const group = await getProductGroupSummary(product);
+  return { product, history, group };
+}
+
+/**
+ * 2026-10-01: 같은 제품(상품명 + 용량 + 수량)을 파는 다른 판매자 행을 모은다.
+ *
+ * 쿠팡은 같은 productId·itemId라도 판매자가 다르면 vendorItemId가 달라져 별도 SKU가 된다.
+ * 실제 데이터에서도 productId+itemId가 같고 vendorItemId만 다른 행이 2,045그룹 4,809행이고
+ * 그중 1,841그룹은 두 판매자가 동시에 팔고 있었다(2026-10-01 집계). 이 행들은 중복이 아니라
+ * 비교 대상이므로 지우지 않고 그룹으로 묶어 최저가를 고른다.
+ */
+export async function listProductGroupMembers(familyVariantKey: string | null | undefined, options: { excludeProductId?: number } = {}) {
+  const db = await getDb();
+  const groupKey = familyVariantKey?.trim();
+  if (!db || !groupKey || isUngroupedProductKey(groupKey)) return [];
+  const rows = await db
+    .select()
+    .from(products)
+    .where(and(eq(products.familyVariantKey, groupKey), eq(products.isActive, true)))
+    .orderBy(asc(products.currentPrice));
+  return options.excludeProductId ? rows.filter(row => row.id !== options.excludeProductId) : rows;
+}
+
+/**
+ * 제품 그룹의 최저가 요약. 품절이거나 가격이 0인 행은 "더 싼 선택지"가 아니라 살 수 없는
+ * 행이므로 최저가 후보에서 뺀다. 가격차 가드는 두지 않는다 — 사용자 결정(2026-10-01):
+ * "제품명·용량·수량만 같으면 최저가 상품으로 바꿔야 함".
+ */
+export async function getProductGroupSummary(product: { id: number; familyVariantKey: string | null; currentPrice: number; inStock: boolean }) {
+  const members = await listProductGroupMembers(product.familyVariantKey);
+  if (members.length <= 1) return { memberCount: members.length, lowestPrice: null, lowestProduct: null, sellerCount: members.length };
+  const purchasable = members.filter(member => member.inStock && member.currentPrice > 0);
+  const verified = purchasable.filter(member => member.refreshState !== "awaiting_collection");
+  const pool = verified.length > 0 ? verified : purchasable.length > 0 ? purchasable : members;
+  const lowestProduct = pool.reduce((best, member) => (member.currentPrice < best.currentPrice ? member : best));
+  return {
+    memberCount: members.length,
+    sellerCount: members.length,
+    lowestPrice: lowestProduct.currentPrice,
+    lowestProduct: lowestProduct.id === product.id ? null : lowestProduct,
+  };
 }
 
 export async function listRelatedProductVariants(productId: number) {
@@ -3264,7 +3380,7 @@ export async function syncLatestCollectedPricesToTrackedProducts(now = new Date(
           ...(collectorMetadata.packSize && !product.packSize ? { packSize: collectorMetadata.packSize } : {}),
         }
       : null;
-    if (metadataUpdate) await db.update(products).set(metadataUpdate).where(eq(products.id, product.id));
+    if (metadataUpdate) await db.update(products).set(withMergedProductGroupKey(product, metadataUpdate)).where(eq(products.id, product.id));
     if (observation.collectedAt.getTime() <= product.lastSeenAt.getTime()) { result.staleCount += 1; continue; }
     if (!observation.inStock) {
       await db.update(products).set({ inStock: false, lastSeenAt: observation.collectedAt, refreshState: "fresh", lastRefreshAttemptAt: null, nextRefreshAt: null, lastRefreshReason: "가신 수집기 품절 관측" }).where(eq(products.id, product.id));
@@ -3332,7 +3448,7 @@ export async function syncCollectorMetadataForAdmin(now = new Date()): Promise<C
       ...(hasMissingCollectorMetadata(product, metadata) ? { optionMetadataSource: "collection" as const } : {}),
     };
     if (Object.keys(update).length === 0) { result.unchangedCount += 1; continue; }
-    await db.update(products).set(update).where(eq(products.id, product.id));
+    await db.update(products).set(withMergedProductGroupKey(product, update)).where(eq(products.id, product.id));
     result.updatedCount += 1;
     result.updatedProductIds.push(product.id);
   }
@@ -3361,7 +3477,7 @@ export async function recordPriceTrackingMetric(input: {
   productId?: number | null;
   runId?: number | null;
   source: string;
-  outcome: "matched" | "unmatched" | "collector_resolved" | "api_error" | "rate_limited";
+  outcome: "matched" | "unmatched" | "collector_resolved" | "group_covered" | "api_error" | "rate_limited";
   apiCalls: number;
   durationMs: number;
   occurredAt?: Date;
@@ -3392,15 +3508,22 @@ export async function getPriceTrackingPerformanceMetrics(days = 7, now = new Dat
   return buildPriceTrackingPerformanceMetrics(rows, windowStartedAt, now);
 }
 
-export function buildPriceTrackingPerformanceMetrics(rows: Array<{ productId: number | null; source: string; outcome: "matched" | "unmatched" | "collector_resolved" | "api_error" | "rate_limited"; apiCalls: number; durationMs: number; occurredAt: Date }>, windowStartedAt: Date, now: Date) {
+/**
+ * 2026-10-01: group_covered — 이 SKU는 쿠팡 검색에서 못 찾았지만 같은 제품(상품명 + 용량 +
+ * 수량)을 파는 다른 판매자 행이 정상 갱신 중이라 제품 가격은 끊기지 않은 경우. 미해결이
+ * 아니라 해결된 쪽으로 센다. 미일치(unmatched)에 섞어 두면 실제로는 가격이 살아 있는
+ * 상품까지 "해결해야 할 문제"로 보여서 지표가 과장된다.
+ */
+export function buildPriceTrackingPerformanceMetrics(rows: Array<{ productId: number | null; source: string; outcome: "matched" | "unmatched" | "collector_resolved" | "group_covered" | "api_error" | "rate_limited"; apiCalls: number; durationMs: number; occurredAt: Date }>, windowStartedAt: Date, now: Date) {
+  const isResolvedOutcome = (outcome: typeof rows[number]["outcome"]) => outcome === "matched" || outcome === "collector_resolved" || outcome === "group_covered";
   const attempts = rows.length;
-  const completed = rows.filter(row => row.outcome === "matched" || row.outcome === "unmatched" || row.outcome === "collector_resolved");
-  const resolved = rows.filter(row => row.outcome === "matched" || row.outcome === "collector_resolved");
+  const completed = rows.filter(row => isResolvedOutcome(row.outcome) || row.outcome === "unmatched");
+  const resolved = rows.filter(row => isResolvedOutcome(row.outcome));
   const latestOutcomeByProduct = new Map<number, typeof rows[number]["outcome"]>();
   for (const row of rows) if (row.productId !== null) latestOutcomeByProduct.set(row.productId, row.outcome);
   const uniqueProducts = latestOutcomeByProduct.size;
   const unresolvedProducts = Array.from(latestOutcomeByProduct.values()).filter(outcome => outcome === "unmatched" || outcome === "api_error" || outcome === "rate_limited").length;
-  const resolvedProducts = Array.from(latestOutcomeByProduct.values()).filter(outcome => outcome === "matched" || outcome === "collector_resolved").length;
+  const resolvedProducts = Array.from(latestOutcomeByProduct.values()).filter(isResolvedOutcome).length;
   const productStates = new Map<number, { pendingAt?: number }>();
   const resolutionDurations: number[] = [];
   for (const row of rows) {
@@ -3408,7 +3531,7 @@ export function buildPriceTrackingPerformanceMetrics(rows: Array<{ productId: nu
     const state = productStates.get(row.productId) ?? {};
     if (row.outcome === "unmatched" || row.outcome === "api_error" || row.outcome === "rate_limited") {
       state.pendingAt ??= row.occurredAt.getTime();
-    } else if (row.outcome === "matched" || row.outcome === "collector_resolved") {
+    } else if (isResolvedOutcome(row.outcome)) {
       if (state.pendingAt !== undefined) resolutionDurations.push(Math.max(0, row.occurredAt.getTime() - state.pendingAt));
       state.pendingAt = undefined;
     }
@@ -3422,11 +3545,11 @@ export function buildPriceTrackingPerformanceMetrics(rows: Array<{ productId: nu
   const daily = dayStarts.map(start => {
     const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
     const dayRows = rows.filter(row => row.occurredAt >= start && row.occurredAt < end);
-    const dayCompleted = dayRows.filter(row => row.outcome === "matched" || row.outcome === "unmatched" || row.outcome === "collector_resolved");
-    return { date: start.toISOString().slice(0, 10), attempts: dayRows.length, matched: dayRows.filter(row => row.outcome === "matched").length, collectorResolved: dayRows.filter(row => row.outcome === "collector_resolved").length, unresolved: dayRows.filter(row => row.outcome === "unmatched").length, apiErrors: dayRows.filter(row => row.outcome === "api_error" || row.outcome === "rate_limited").length, avgApiCalls: dayRows.length ? roundMetric(dayRows.reduce((sum, row) => sum + Math.max(0, row.apiCalls), 0) / dayRows.length) : 0, successRate: dayCompleted.length ? roundMetric((dayRows.filter(row => row.outcome === "matched" || row.outcome === "collector_resolved").length / dayCompleted.length) * 100) : null };
+    const dayCompleted = dayRows.filter(row => isResolvedOutcome(row.outcome) || row.outcome === "unmatched");
+    return { date: start.toISOString().slice(0, 10), attempts: dayRows.length, matched: dayRows.filter(row => row.outcome === "matched").length, collectorResolved: dayRows.filter(row => row.outcome === "collector_resolved").length, groupCovered: dayRows.filter(row => row.outcome === "group_covered").length, unresolved: dayRows.filter(row => row.outcome === "unmatched").length, apiErrors: dayRows.filter(row => row.outcome === "api_error" || row.outcome === "rate_limited").length, avgApiCalls: dayRows.length ? roundMetric(dayRows.reduce((sum, row) => sum + Math.max(0, row.apiCalls), 0) / dayRows.length) : 0, successRate: dayCompleted.length ? roundMetric((dayRows.filter(row => isResolvedOutcome(row.outcome)).length / dayCompleted.length) * 100) : null };
   });
-  const failureReasonCounts = { skuMismatch: rows.filter(row => row.outcome === "unmatched").length, collectorTrusted: rows.filter(row => row.outcome === "collector_resolved").length, apiError: rows.filter(row => row.outcome === "api_error").length, rateLimited: rows.filter(row => row.outcome === "rate_limited").length };
-  return { windowStartedAt, windowEndedAt: now, summary: { attempts, uniqueProducts, completed: completed.length, matched: rows.filter(row => row.outcome === "matched").length, collectorResolved: rows.filter(row => row.outcome === "collector_resolved").length, unresolved: rows.filter(row => row.outcome === "unmatched").length, unresolvedProducts, resolvedProducts, apiErrors: rows.filter(row => row.outcome === "api_error").length, rateLimited: rows.filter(row => row.outcome === "rate_limited").length, failureReasonCounts, successRate: completed.length ? roundMetric((resolved.length / completed.length) * 100) : 0, collectorResolutionRate: completed.length ? roundMetric((rows.filter(row => row.outcome === "collector_resolved").length / completed.length) * 100) : 0, avgApiCallsPerProduct: attempts ? roundMetric(rows.reduce((sum, row) => sum + Math.max(0, row.apiCalls), 0) / attempts) : 0, avgResolutionHours: resolutionDurations.length ? roundMetric(resolutionDurations.reduce((sum, duration) => sum + duration, 0) / resolutionDurations.length / (60 * 60 * 1000)) : null }, daily };
+  const failureReasonCounts = { skuMismatch: rows.filter(row => row.outcome === "unmatched").length, collectorTrusted: rows.filter(row => row.outcome === "collector_resolved").length, groupCovered: rows.filter(row => row.outcome === "group_covered").length, apiError: rows.filter(row => row.outcome === "api_error").length, rateLimited: rows.filter(row => row.outcome === "rate_limited").length };
+  return { windowStartedAt, windowEndedAt: now, summary: { attempts, uniqueProducts, completed: completed.length, matched: rows.filter(row => row.outcome === "matched").length, collectorResolved: rows.filter(row => row.outcome === "collector_resolved").length, groupCovered: rows.filter(row => row.outcome === "group_covered").length, unresolved: rows.filter(row => row.outcome === "unmatched").length, unresolvedProducts, resolvedProducts, apiErrors: rows.filter(row => row.outcome === "api_error").length, rateLimited: rows.filter(row => row.outcome === "rate_limited").length, failureReasonCounts, successRate: completed.length ? roundMetric((resolved.length / completed.length) * 100) : 0, collectorResolutionRate: completed.length ? roundMetric((rows.filter(row => row.outcome === "collector_resolved").length / completed.length) * 100) : 0, avgApiCallsPerProduct: attempts ? roundMetric(rows.reduce((sum, row) => sum + Math.max(0, row.apiCalls), 0) / attempts) : 0, avgResolutionHours: resolutionDurations.length ? roundMetric(resolutionDurations.reduce((sum, duration) => sum + duration, 0) / resolutionDurations.length / (60 * 60 * 1000)) : null }, daily };
 }
 
 function safeDayCount(start: Date, end: Date) {

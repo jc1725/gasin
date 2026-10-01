@@ -36,6 +36,11 @@ export const products = mysqlTable(
     affiliateUrl: text("affiliateUrl").notNull(),
     categoryName: varchar("categoryName", { length: 255 }),
     familyKey: varchar("familyKey", { length: 500 }),
+    // 2026-10-01: 추적 단위를 판매자별 SKU에서 제품(상품명 + 용량 + 수량)으로 올리기 위한
+    // 그룹키. 같은 값을 가진 행은 "같은 제품을 파는 서로 다른 판매자"로 보고, 목록·상세·
+    // 알림에는 그중 가장 싼 행 하나만 대표로 내보낸다. 용량을 읽지 못한 상품은 null로 두고
+    // 묶지 않는다(server/productVariant.ts의 buildProductGroupKey 참고).
+    familyVariantKey: varchar("familyVariantKey", { length: 500 }),
     variantLabel: varchar("variantLabel", { length: 500 }),
     unitPrice: int("unitPrice"),
     unitLabel: varchar("unitLabel", { length: 80 }),
@@ -73,6 +78,7 @@ export const products = mysqlTable(
     index("products_source_lastSeenAt_idx").on(table.source, table.lastSeenAt),
     index("products_search_refresh_queue_idx").on(table.source, table.refreshState, table.nextRefreshAt),
     index("products_familyKey_idx").on(table.familyKey),
+    index("products_familyVariantKey_idx").on(table.familyVariantKey, table.isActive),
     index("products_trackingPriority_lastSeenAt_idx").on(table.trackingPriority, table.lastSeenAt),
     index("products_deepLinkStatus_lastSeenAt_idx").on(table.deepLinkStatus, table.lastSeenAt),
     index("products_trackingPriority_lastViewedAt_idx").on(table.trackingPriority, table.lastViewedAt),
@@ -283,7 +289,9 @@ export const priceTrackingMetrics = mysqlTable(
     productId: int("productId").references(() => products.id, { onDelete: "cascade" }),
     runId: int("runId").references(() => syncRuns.id, { onDelete: "set null" }),
     source: varchar("source", { length: 32 }).notNull(),
-    outcome: mysqlEnum("outcome", ["matched", "unmatched", "collector_resolved", "api_error", "rate_limited"]).notNull(),
+    // 2026-10-01: group_covered — 이 SKU는 못 찾았지만 같은 제품(상품명 + 용량 + 수량)을
+    // 파는 다른 판매자 행이 정상 갱신 중이라 제품 가격은 끊기지 않은 경우.
+    outcome: mysqlEnum("outcome", ["matched", "unmatched", "collector_resolved", "group_covered", "api_error", "rate_limited"]).notNull(),
     apiCalls: int("apiCalls").default(0).notNull(),
     durationMs: int("durationMs").default(0).notNull(),
     occurredAt: timestamp("occurredAt").defaultNow().notNull(),
