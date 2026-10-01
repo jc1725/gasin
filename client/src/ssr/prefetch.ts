@@ -30,7 +30,7 @@ async function seed(queryClient: QueryClient, key: unknown, data: unknown) {
 }
 
 function knownPath(path: string) {
-  return path === "/" || path === "/guide" || path === "/methodology" || path === "/goldbox" || path === "/hot-deals" || path === "/favorites" || path === "/search" || /^\/product\/\d+$/.test(path) || path === "/admin" || path.startsWith("/admin/");
+  return path === "/" || path === "/guide" || path === "/methodology" || path === "/give" || path === "/goldbox" || path === "/hot-deals" || path === "/favorites" || path === "/search" || /^\/product\/\d+$/.test(path) || path === "/admin" || path.startsWith("/admin/");
 }
 
 export function normalizeSsrPath(url: string) {

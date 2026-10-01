@@ -10,6 +10,7 @@ import Home from "./pages/Home";
 
 const Favorites = lazy(() => import("./pages/Favorites"));
 const GoldBox = lazy(() => import("./pages/GoldBox"));
+const Give = lazy(() => import("./pages/Give"));
 const Guide = lazy(() => import("./pages/Guide"));
 const Methodology = lazy(() => import("./pages/Methodology"));
 const ProductDetail = lazy(() => import("./pages/ProductDetail"));
@@ -24,6 +25,7 @@ const HotDeals = lazy(() => import("./pages/HotDeals"));
 const routeLoaders: Array<[RegExp, () => Promise<unknown>]> = [
   [/^\/favorites(?:\/|$)/, () => import("./pages/Favorites")],
   [/^\/goldbox(?:\/|$)/, () => import("./pages/GoldBox")],
+  [/^\/give(?:\/|$)/, () => import("./pages/Give")],
   [/^\/guide(?:\/|$)/, () => import("./pages/Guide")],
   [/^\/methodology(?:\/|$)/, () => import("./pages/Methodology")],
   [/^\/product\/\d+/, () => import("./pages/ProductDetail")],
@@ -46,6 +48,7 @@ function Router() {
         <Route path={"/guide"} component={Guide} />
         <Route path={"/methodology"} component={Methodology} />
         <Route path={"/goldbox"} component={GoldBox} />
+        <Route path={"/give"} component={Give} />
         <Route path={"/hot-deals"} component={HotDeals} />
         <Route path={"/favorites"} component={Favorites} />
         <Route path={"/search"} component={SearchProducts} />

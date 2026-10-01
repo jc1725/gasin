@@ -58,6 +58,7 @@ export function getProductPageMeta(product: { id: number; name: string; currentP
 
 export function getPageMeta(path: string): PageMeta {
   if (path.startsWith("/methodology")) return { title: "가격 검증 방법·와우회원가 기준 | 가신", description: "가신이 정확 옵션 SKU, 최근 와우회원가 관측, 90일 가격 이력으로 가격을 검증하는 방법을 확인하세요.", socialTitle: "가신은 가격을 이렇게 검증합니다", socialDescription: "와우회원가 관측 시각, 옵션 SKU, 90일 가격 이력을 함께 확인하세요." };
+  if (path === "/give" || path.startsWith("/give/")) return { title: "GASIN GIVE 기부 기준·내역 | 가신", description: "가신은 실제 지급받은 쿠팡 파트너스 수익금(세후)의 30%를 기부합니다. 기부 기준과 정산 일정, 월별 기부 내역을 확인하세요.", socialTitle: "쿠팡 가기 전, 가신 한번 | GASIN GIVE", socialDescription: "가신은 실제 지급받은 쿠팡 파트너스 수익금(세후)의 30%를 기부합니다." };
   if (path.startsWith("/guide")) return { title: "쿠팡 와우회원가·가격 알림 가이드 | 가신", description: "쿠팡 와우회원가 확인, 같은 상품 옵션 비교, 가격 변동 알림 방법을 가신 가이드에서 확인하세요.", socialTitle: "가격을 있는 그대로 믿지 마세요 | 가신 가이드", socialDescription: "와우회원가, 할인율, 옵션별 가격 이력까지 비교해 진짜 가격 흐름을 확인하세요." };
   if (path.startsWith("/goldbox")) return { title: "쿠팡 골드박스 가격 추적 | 가신", description: "가신에서 쿠팡 골드박스 상품과 가격 흐름을 확인하세요.", socialTitle: "골드박스 가격도 이력으로 비교하세요 | 가신", socialDescription: "쿠팡 골드박스 상품의 가격 흐름을 가신에서 확인하세요." };
   if (path.startsWith("/hot-deals")) return { title: "특가 상품 | 가신", description: "가신이 소개하는 기간 한정 특가 상품을 확인하세요.", socialTitle: "기간 한정 특가를 확인하세요 | 가신", socialDescription: "가신이 소개하는 특가 상품과 판매 조건을 확인하세요." };

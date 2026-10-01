@@ -18,7 +18,7 @@ const publicSsrCache = new Map<string, { expiresAt: number; status: number; html
 function getPublicSsrCacheKey(req: express.Request) {
   if (req.method !== "GET" || Object.keys(req.query).length > 0) return null;
   const pathname = new URL(req.originalUrl, "http://localhost").pathname;
-  if (pathname === "/" || pathname === "/guide" || pathname === "/methodology" || pathname === "/goldbox" || pathname === "/hot-deals" || /^\/product\/\d+$/.test(pathname)) return pathname;
+  if (pathname === "/" || pathname === "/guide" || pathname === "/methodology" || pathname === "/give" || pathname === "/goldbox" || pathname === "/hot-deals" || /^\/product\/\d+$/.test(pathname)) return pathname;
   return null;
 }
 

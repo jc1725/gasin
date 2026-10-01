@@ -54,7 +54,7 @@ export default function GasynAppShell({ children }: { children: ReactNode }) {
       <PwaInstallPrompt />
       <PushPermissionPrompt />
       <SuspensionNotice />
-      <footer className="mx-auto max-w-2xl px-6 pb-27 text-center text-[11px] leading-relaxed text-[#778679]">{location.startsWith("/hot-deals") ? "특가 상품의 구매는 해당 스마트스토어에서 진행되며, 상품 정보와 판매 조건은 판매 페이지 기준입니다." : "가신 링크 제품 구매시 쿠팡파트너스 활동의 일환으로 일정액의 수수료를 제공받습니다."}</footer>
+      <footer className="mx-auto max-w-2xl px-6 pb-27 text-center text-[11px] leading-relaxed text-[#778679]">{location.startsWith("/hot-deals") ? "특가 상품의 구매는 해당 스마트스토어에서 진행되며, 상품 정보와 판매 조건은 판매 페이지 기준입니다." : <>가신 링크 제품 구매시 쿠팡파트너스 활동의 일환으로 일정액의 수수료를 제공받습니다.<Link href="/give" className="mt-1 block font-bold text-[#176b3a]">GASIN GIVE · 파트너스 수익금(세후) 30% 기부 기준 보기</Link></>}</footer>
       <nav aria-label="주요 메뉴" className="fixed inset-x-0 bottom-0 z-50 border-t border-[#dbe7da] bg-white/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl">
         <div className={`mx-auto grid max-w-2xl px-3 py-2 ${isAdmin ? "grid-cols-6" : "grid-cols-5"}`}>
           {visibleTabs.map(({ href, label, Icon }) => { const active = href === "/" ? location === "/" : location.startsWith(href); return <Link key={href} href={href} className={`flex min-h-13 flex-col items-center justify-center gap-1 rounded-xl text-[10px] font-semibold transition ${active ? "bg-[#e5f2e7] text-[#176b3a]" : "text-[#7a877c] hover:text-[#176b3a]"}`}><Icon className={`size-4 ${active ? "stroke-[2.5]" : "stroke-2"}`} />{label}</Link>; })}

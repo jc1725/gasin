@@ -3,7 +3,7 @@ import { priceHistory, products } from "../drizzle/schema";
 import { getDb } from "./db";
 
 export const SITE_ORIGIN = "https://gasin.shop";
-const STATIC_PATHS = ["/", "/guide", "/methodology", "/goldbox", "/hot-deals", "/search"] as const;
+const STATIC_PATHS = ["/", "/guide", "/methodology", "/give", "/goldbox", "/hot-deals", "/search"] as const;
 const XML_ESCAPE = (value: string) => value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\"/g, "&quot;").replace(/'/g, "&apos;");
 const dateOnly = (value: Date | string | null | undefined) => value ? new Date(value).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10);
 
