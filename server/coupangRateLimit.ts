@@ -7,6 +7,23 @@ export const COUPANG_TRACKING_MAX_CALLS_PER_MINUTE = Math.floor(
   COUPANG_API_MAX_CALLS_PER_MINUTE * COUPANG_TRACKING_BUDGET_WEIGHT / COUPANG_BUDGET_WEIGHT_TOTAL
 );
 export const COUPANG_USER_SEARCH_MAX_CALLS_PER_MINUTE = COUPANG_API_MAX_CALLS_PER_MINUTE - COUPANG_TRACKING_MAX_CALLS_PER_MINUTE;
+
+/**
+ * 2026-10-01: 가격 추적 호출이 전역 창에서 쓸 수 있는 상한.
+ *
+ * 예산은 전역 46 = 가격추적 32 + 사용자검색 14로 나뉘어 있었지만, 전역 창과 카테고리
+ * 창이 서로 독립적으로 굴러가서 "검색 몫 14회는 항상 남는다"가 실제로는 보장되지
+ * 않았다. 추적 창이 전역 창과 어긋나 걸쳐 있으면 한 전역 창 안에서 추적 호출만으로
+ * 46을 채울 수 있고, 그러면 그 분에는 사용자 검색이 창이 멀쩡히 비어 있는데도
+ * minute-limit으로 거부된다(2026-10-01 오후 1시 28분 "상품 검색 API 한도 초과"가
+ * 이 경로였다 — 수집기 딥링크 생성이 전역 예산을 메우고 있었다).
+ *
+ * 그래서 추적 호출은 전역 창에서도 검색 몫을 뺀 만큼까지만 쓰게 한다. 전역 창에
+ * 항상 검색용 자리가 남으므로 창이 어긋나도 검색이 굶지 않는다. 추적 쪽 처리량은
+ * 정상 상태에서 달라지지 않는다(어차피 분당 32가 상한이었다).
+ */
+export const COUPANG_TRACKING_GLOBAL_MAX_CALLS_PER_MINUTE =
+  COUPANG_API_MAX_CALLS_PER_MINUTE - COUPANG_USER_SEARCH_MAX_CALLS_PER_MINUTE;
 export type CoupangApiCallType = "price-tracking" | "product-search";
 const MINUTE_MS = 60 * 1000;
 

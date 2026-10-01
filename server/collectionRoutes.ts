@@ -122,10 +122,15 @@ export function registerCollectionRoutes(app: Express) {
         }
       }
       let alerts = { eligibleProducts: 0, recipientCandidates: 0, sent: 0, skippedDuplicate: 0, failed: 0, pushSent: 0, pushExpired: 0, pushFailed: 0 };
+      // 2026-10-01: pendingDeepLinkProductIds는 위에서 `?? []`로 막아뒀는데 alertProductIds는
+      // 그대로 썼다. 이 값이 비어서 오면 .length에서 터지고, 그 예외가 바깥 catch로 빠져
+      // 관측을 이미 저장한 뒤인데도 500을 돌려준다 — 수집기는 실패로 보고 같은 배치를
+      // 다시 보낸다. 두 값을 같은 방식으로 막는다.
+      const alertProductIds = result.alertProductIds ?? [];
       try {
-        alerts = await checkAndSendExtensionPriceAlerts(result.alertProductIds);
+        alerts = await checkAndSendExtensionPriceAlerts(alertProductIds);
       } catch (alertError) {
-        logError("collect_price_alert_evaluation_failed", "collector_extension", alertError, { alertProductCount: result.alertProductIds.length });
+        logError("collect_price_alert_evaluation_failed", "collector_extension", alertError, { alertProductCount: alertProductIds.length });
       }
       // 큐 정체·FK 오류처럼 "이 배치가 실제로 뭘 했는지"가 진단하기 어려웠던 과거
       // 버그들을 계기로, 배치당 결과 요약(생성/갱신/오래된 관측/딥링크/알림 건수)을
@@ -138,7 +143,7 @@ export function registerCollectionRoutes(app: Express) {
         updated: result.products.updated,
         stale: result.products.stale,
         priceHistoryAdded: result.products.priceHistoryAdded,
-        alertCount: result.alertProductIds.length,
+        alertCount: alertProductIds.length,
         deepLinkProcessed: deepLinks.processedCount,
         durationMs: Date.now() - startedAt,
       });

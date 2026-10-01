@@ -29,7 +29,7 @@ import { getCoupangVariantKey, type CoupangProduct } from "./coupang";
 import { describeProductVariant, getProductFamilyKey, isUngroupedProductKey, resolveStoredProductGroupKey, withMergedProductGroupKey, withProductGroupKey } from "./productVariant";
 import type { ParsedCoupangLink } from "./manualLink";
 import { decideSearchQuota, SEARCH_API_MAX_CALLS_PER_MINUTE, type SearchQuotaSnapshot } from "./searchQuota";
-import { COUPANG_TRACKING_MAX_CALLS_PER_MINUTE, decideCoupangRateLimit, type CoupangApiCallType, type CoupangRateLimitSnapshot } from "./coupangRateLimit";
+import { COUPANG_API_MAX_CALLS_PER_MINUTE, COUPANG_TRACKING_GLOBAL_MAX_CALLS_PER_MINUTE, COUPANG_TRACKING_MAX_CALLS_PER_MINUTE, decideCoupangRateLimit, type CoupangApiCallType, type CoupangRateLimitSnapshot } from "./coupangRateLimit";
 import { buildDeepLinkUpdate, buildManualLookupFailureUpdate, buildManualTrackUpdate, buildProductViewUpdate } from "./trackingState";
 import type { CandidateCsvRow } from "./candidateCsv";
 import type { UserConfirmedPriceCsvRow } from "./userConfirmedPriceCsv";
@@ -2175,9 +2175,18 @@ export async function reserveCoupangApiCall(callTypeOrNow: CoupangApiCallType | 
       lastCallAt: current.lastCallAt,
       blockedUntil: current.blockedUntil,
     } : null;
-    const decision = decideCoupangRateLimit(snapshot, now);
+    // 2026-10-01: 가격 추적 호출은 전역 창에서도 검색 몫을 뺀 한도까지만 쓴다.
+    // 전역 창에 항상 사용자 검색 자리가 남아, 창이 어긋나도 검색이 굶지 않는다
+    // (server/coupangRateLimit.ts의 COUPANG_TRACKING_GLOBAL_MAX_CALLS_PER_MINUTE 참고).
+    const globalMaxCalls = callType === "product-search"
+      ? COUPANG_API_MAX_CALLS_PER_MINUTE
+      : COUPANG_TRACKING_GLOBAL_MAX_CALLS_PER_MINUTE;
+    const decision = decideCoupangRateLimit(snapshot, now, globalMaxCalls);
     if (!decision.allowed) {
-      const lastError = `Coupang 전역 분당 보호 모드(${decision.reason ?? "minute-limit"}): ${decision.retryAt?.toISOString() ?? "해제 시각 미정"} 이후 재개`;
+      const reservedForSearch = decision.reason === "minute-limit" && globalMaxCalls < COUPANG_API_MAX_CALLS_PER_MINUTE;
+      const lastError = reservedForSearch
+        ? `Coupang 전역 분당 예산에서 사용자 검색 몫을 남기기 위해 가격 추적 호출을 보류(가격 추적 상한 ${globalMaxCalls}회): ${decision.retryAt?.toISOString() ?? "해제 시각 미정"} 이후 재개`
+        : `Coupang 전역 분당 보호 모드(${decision.reason ?? "minute-limit"}): ${decision.retryAt?.toISOString() ?? "해제 시각 미정"} 이후 재개`;
       const next = { ...decision.next, lastError };
       if (!current) {
         await tx.insert(searchApiQuotas).values({ scope: COUPANG_GLOBAL_RATE_LIMIT_SCOPE, ...next });
