@@ -3545,6 +3545,48 @@ export async function findExistingExternalProductIds(externalProductIds: string[
   return new Set(rows.map(row => row.externalProductId));
 }
 
+/**
+ * 아무도 쓰지 않는 search 상품 조건(정리 대상). server/unusedSearchCleanup.ts 설명 참고.
+ * 찜·수동 링크는 NOT EXISTS로 확인한다 — 상품 수가 수만 개라 IN 목록을 만들지 않는다.
+ * 하위 쿼리 쪽 테이블에 별칭을 붙이고 products.id를 명시해, UPDATE 문에서도 열 이름이
+ * 하위 쿼리 테이블(id)로 잘못 묶이지 않게 한다.
+ */
+function unusedSearchProductCondition() {
+  return and(
+    eq(products.isActive, true),
+    eq(products.source, "search"),
+    isNull(products.variantLabel),
+    isNull(products.lastViewedAt),
+    sql.raw("NOT EXISTS (SELECT 1 FROM `favorites` AS `f` WHERE `f`.`productId` = `products`.`id`)"),
+    sql.raw("NOT EXISTS (SELECT 1 FROM `manualLinkTracks` AS `m` WHERE `m`.`productId` = `products`.`id`)"),
+  );
+}
+
+export async function countUnusedSearchProducts() {
+  const db = await getDb();
+  if (!db) throw new Error("Database is unavailable");
+  const [row] = await db.select({ count: sql<number>`COUNT(*)` }).from(products).where(unusedSearchProductCondition());
+  return Number(row?.count ?? 0);
+}
+
+export async function selectUnusedSearchProductIds(limit: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is unavailable");
+  const rows = await db.select({ id: products.id }).from(products).where(unusedSearchProductCondition()).orderBy(asc(products.id)).limit(limit);
+  return rows.map(row => row.id);
+}
+
+/** 고른 ID 중 아직 조건을 만족하는 것만 비활성으로 돌린다(그 사이 누가 찜했거나 열었으면 건너뜀). */
+export async function deactivateUnusedSearchProductsByIds(ids: number[]) {
+  if (ids.length === 0) return 0;
+  const db = await getDb();
+  if (!db) throw new Error("Database is unavailable");
+  const result = await db.update(products)
+    .set({ isActive: false, deactivatedAt: new Date() })
+    .where(and(inArray(products.id, ids), unusedSearchProductCondition()));
+  return getAffectedRows(result);
+}
+
 export async function listDonationLedgerEntries() {
   const db = await getDb();
   if (!db) throw new Error("Database is unavailable");

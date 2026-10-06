@@ -88,7 +88,11 @@ import {
   updateUserRoleForAdmin,
   updateUserSuspensionForAdmin,
   updateSmartstoreHotDeal,
+  countUnusedSearchProducts,
+  selectUnusedSearchProductIds,
+  deactivateUnusedSearchProductsByIds,
 } from "./db";
+import { describeUnusedSearchCleanup, runChunkedDeactivation } from "./unusedSearchCleanup";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { materializeSearchResult, searchCatalogSafely } from "./catalogSearch";
 import { parseCoupangLink, resolveCoupangLink } from "./manualLink";
@@ -448,6 +452,19 @@ export const appRouter = router({
           throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "딥링크 갱신에 실패했습니다." });
         }
       }),
+    unusedSearchProductCount: adminProcedure.query(async ({ ctx }) => {
+      requireGoogleUser(ctx.user.loginMethod);
+      return { count: await countUnusedSearchProducts() };
+    }),
+    deactivateUnusedSearchProducts: adminProcedure.mutation(async ({ ctx }) => {
+      requireGoogleUser(ctx.user.loginMethod);
+      const run = await runChunkedDeactivation({
+        selectBatch: selectUnusedSearchProductIds,
+        deactivate: deactivateUnusedSearchProductsByIds,
+      });
+      const remainingCount = await countUnusedSearchProducts();
+      return { ...run, remainingCount, detail: describeUnusedSearchCleanup({ deactivatedCount: run.deactivatedCount, remainingCount }) };
+    }),
     enqueueAllSearchProductsForPriceRefresh: adminProcedure.mutation(async ({ ctx }) => {
       requireGoogleUser(ctx.user.loginMethod);
       const queuedCount = await enqueueAllSearchProductsForPriceRefresh();

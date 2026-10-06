@@ -188,6 +188,18 @@ export default function AdminPrices() {
     },
     onError: error => toast.error(error.message),
   });
+  const unusedSearchProductCount = trpc.adminPrices.unusedSearchProductCount.useQuery(undefined, { enabled: isAdmin });
+  const deactivateUnusedSearchProducts = trpc.adminPrices.deactivateUnusedSearchProducts.useMutation({
+    onSuccess: async result => {
+      await Promise.all([
+        utils.adminPrices.unusedSearchProductCount.invalidate(),
+        utils.adminPrices.listDeferred.invalidate(),
+        utils.adminPrices.deferredInputSummary.invalidate(),
+      ]);
+      toast.success(result.detail);
+    },
+    onError: error => toast.error(error.message),
+  });
   const enqueueFavoritedProductsForPriceRefresh = trpc.adminPrices.enqueueFavoritedProductsForPriceRefresh.useMutation({
     onSuccess: async result => {
       await Promise.all([
@@ -407,6 +419,12 @@ export default function AdminPrices() {
     enqueueAllSearchProductsForPriceRefresh.mutate();
   };
 
+  const cleanUpUnusedSearchProducts = () => {
+    const count = unusedSearchProductCount.data?.count ?? 0;
+    if (!window.confirm(`아무도 열어보거나 찜하지 않은 검색 상품 ${count.toLocaleString("ko-KR")}개를 숨김 처리할까요?\n\n옵션 라벨이 없고, 상세 조회·찜·수동 링크 기록이 없는 search 상품만 대상입니다. 숨긴 상품은 90일 뒤 자동 삭제되며, 그 전에 누군가 검색 결과에서 열면 다시 살아납니다. 한 번에 최대 2만 개씩 처리합니다.`)) return;
+    deactivateUnusedSearchProducts.mutate();
+  };
+
   const enqueueFavoritedForPriceRefresh = () => {
     if (!window.confirm("현재 찜한 상품만 수집기 가격 업데이트 대상으로 등록할까요?\n\n쿠팡 API를 호출하지 않습니다. 수집기가 상품 페이지를 직접 방문해 관측값을 전송하면 가격과 옵션이 갱신됩니다. 품절·비활성 상품은 제외됩니다.")) return;
     enqueueFavoritedProductsForPriceRefresh.mutate();
@@ -508,6 +526,10 @@ export default function AdminPrices() {
         <button type="button" onClick={enqueueFavoritedForPriceRefresh} disabled={enqueueFavoritedProductsForPriceRefresh.isPending || enqueueAllSearchProductsForPriceRefresh.isPending} className="mt-3 inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-xl bg-white px-4 text-xs font-extrabold text-[#246b42] disabled:opacity-60"><Heart className={`size-3.5 ${enqueueFavoritedProductsForPriceRefresh.isPending ? "animate-pulse" : ""}`} />{enqueueFavoritedProductsForPriceRefresh.isPending ? "찜 상품 등록 중" : "찜한 상품만 수집기 가격 업데이트"}</button>
       </section>
     </div>
+    <section className="mb-4 rounded-3xl bg-white p-4 shadow-sm ring-1 ring-[#e2ebe1]">
+      <div className="flex items-start gap-3"><span className="grid size-10 shrink-0 place-items-center rounded-2xl bg-[#fff4f2] text-[#a44c45]"><Trash2 className="size-4" /></span><div className="min-w-0 flex-1"><p className="text-xs font-extrabold text-[#25362a]">안 쓰는 검색 상품 정리</p><p className="mt-1 text-[10px] leading-4 text-[#718071]">옵션 라벨이 없고 아무도 열어보거나 찜하지 않은 search 상품을 숨깁니다. 90일 뒤 자동 삭제됩니다.</p><p className="mt-2 text-sm font-extrabold text-[#a44c45]">정리 대상 {unusedSearchProductCount.isLoading ? "계산 중" : `${(unusedSearchProductCount.data?.count ?? 0).toLocaleString("ko-KR")}개`}</p></div></div>
+      <button type="button" onClick={cleanUpUnusedSearchProducts} disabled={deactivateUnusedSearchProducts.isPending || !unusedSearchProductCount.data?.count} className="mt-3 inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-xl bg-[#a44c45] px-4 text-xs font-extrabold text-white disabled:opacity-50"><Trash2 className={`size-3.5 ${deactivateUnusedSearchProducts.isPending ? "animate-pulse" : ""}`} />{deactivateUnusedSearchProducts.isPending ? "정리 중 (1~2분 걸릴 수 있음)" : "안 쓰는 검색 상품 숨기기"}</button>
+    </section>
     <section className="mb-4 rounded-3xl bg-white p-4 shadow-sm ring-1 ring-[#e2ebe1]"><div className="flex items-start justify-between gap-3"><div><p className="text-xs font-bold text-[#308154]">TRACKING PERFORMANCE</p><h2 className="mt-1 text-lg font-extrabold text-[#25362a]">가격 추적 성과 모니터링</h2><p className="mt-1 text-[11px] leading-4 text-[#718071]">최근 7일 기준 보류 SKU 해소 시간, 상품당 API 호출과 해결 경로를 추적합니다.</p></div><button type="button" onClick={() => performanceMetrics.refetch()} className="grid size-10 shrink-0 place-items-center rounded-full bg-[#f4fbf5] text-[#176b3a]" aria-label="가격 추적 성과 새로고침"><RefreshCw className={`size-4 ${performanceMetrics.isFetching ? "animate-spin" : ""}`} /></button></div>{performanceMetrics.isLoading ? <p className="py-8 text-center text-xs text-[#718071]">성과 지표를 계산하는 중입니다.</p> : null}{performanceMetrics.data ? <><div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4"><div className="rounded-2xl bg-[#f4fbf5] p-3"><p className="text-[10px] font-bold text-[#718071]">보류 SKU 평균 해소</p><p className="mt-2 text-xl font-extrabold text-[#176b3a]">{performanceMetrics.data.summary.avgResolutionHours == null ? "-" : performanceMetrics.data.summary.avgResolutionHours}<span className="ml-1 text-[10px]">시간</span></p></div><div className="rounded-2xl bg-[#f4fbf5] p-3"><p className="text-[10px] font-bold text-[#718071]">상품당 API 호출</p><p className="mt-2 text-xl font-extrabold text-[#25362a]">{performanceMetrics.data.summary.avgApiCallsPerProduct}<span className="ml-1 text-[10px]">회</span></p></div><div className="rounded-2xl bg-[#f4fbf5] p-3"><p className="text-[10px] font-bold text-[#718071]">정상 해소율</p><p className="mt-2 text-xl font-extrabold text-[#176b3a]">{performanceMetrics.data.summary.successRate}<span className="ml-1 text-[10px]">%</span></p></div><div className="rounded-2xl bg-[#fffaf0] p-3"><p className="text-[10px] font-bold text-[#94601a]">수집기 해소 비율</p><p className="mt-2 text-xl font-extrabold text-[#94601a]">{performanceMetrics.data.summary.collectorResolutionRate}<span className="ml-1 text-[10px]">%</span></p></div></div><div className="mt-4 h-56"><ResponsiveContainer width="100%" height="100%"><LineChart data={performanceMetrics.data.daily} margin={{ top: 8, right: 8, left: -20, bottom: 0 }}><CartesianGrid strokeDasharray="3 3" stroke="#e2ebe1" /><XAxis dataKey="date" tick={{ fontSize: 9, fill: "#718071" }} tickFormatter={value => String(value).slice(5)} /><YAxis allowDecimals={false} tick={{ fontSize: 9, fill: "#718071" }} /><Tooltip labelFormatter={value => `날짜 ${value}`} /><Line type="monotone" dataKey="matched" name="API 정확 SKU" stroke="#176b3a" strokeWidth={2} dot={false} /><Line type="monotone" dataKey="collectorResolved" name="수집기 해소" stroke="#94601a" strokeWidth={2} dot={false} /><Line type="monotone" dataKey="unresolved" name="미해결" stroke="#a44c45" strokeWidth={2} dot={false} /></LineChart></ResponsiveContainer></div><div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[10px] text-[#718071]"><span>시도 {performanceMetrics.data.summary.attempts}건</span><span>고유 상품 {performanceMetrics.data.summary.uniqueProducts}개</span><span>정확 매칭 {performanceMetrics.data.summary.matched}건</span><span>미해결 시도 {performanceMetrics.data.summary.unresolved}건</span><span className="font-bold text-[#a44c45]">고유 미해결 {performanceMetrics.data.summary.unresolvedProducts}개</span><span>API 오류 {performanceMetrics.data.summary.apiErrors}건</span><span>보호 모드 {performanceMetrics.data.summary.rateLimited}건</span></div><div className="mt-3 rounded-2xl bg-[#fffaf0] px-3 py-2 text-[10px] leading-4 text-[#94601a]"><span className="font-bold">원인별 시도:</span> SKU 미일치 {performanceMetrics.data.summary.failureReasonCounts.skuMismatch}건 · 수집기 해소 {performanceMetrics.data.summary.failureReasonCounts.collectorTrusted}건 · 같은 제품 다른 판매자 대체 {performanceMetrics.data.summary.failureReasonCounts.groupCovered}건 · API 오류 {performanceMetrics.data.summary.failureReasonCounts.apiError}건 · 보호 모드 {performanceMetrics.data.summary.failureReasonCounts.rateLimited}건</div></> : null}</section>
     <section className="mb-4 rounded-3xl bg-white p-4 shadow-sm ring-1 ring-[#e2ebe1]">
       <div className="flex items-start justify-between gap-3"><div><p className="text-xs font-bold text-[#308154]">LAST 24 HOURS</p><h2 className="mt-1 text-lg font-extrabold text-[#25362a]">가격 갱신 작업 통계</h2><p className="mt-1 text-[11px] leading-4 text-[#718071]">최근 24시간의 실행 결과와 시간대별 처리 상품 수를 보여줍니다.</p></div><button type="button" onClick={() => priceRefreshStats.refetch()} className="grid size-10 shrink-0 place-items-center rounded-full bg-[#f4fbf5] text-[#176b3a]" aria-label="가격 갱신 통계 새로고침"><RefreshCw className={`size-4 ${priceRefreshStats.isFetching ? "animate-spin" : ""}`} /></button></div>
