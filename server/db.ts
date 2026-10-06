@@ -3531,13 +3531,17 @@ export async function pruneGoodViaEvents(before: Date, maxChunks = 20) {
 // ============================================================
 // 2026-10-01 리뉴얼 5단계: GASIN GIVE 기부 장부 (규칙은 server/give.ts)
 // ------------------------------------------------------------
-/** 주어진 externalProductId 중 DB에 이미 있는 것만 돌려준다(가격 재확인이 새 SKU를 저장하지 않게). */
+/**
+ * 주어진 externalProductId 중 DB에 있고 활성인 것만 돌려준다(가격 재확인이 새 SKU를 저장하지 않게).
+ * 비활성 행은 뺀다 — upsertCoupangProduct는 isActive를 true로 되돌리므로, 정리해서 비활성으로
+ * 돌린 상품이 다른 상품의 재확인 검색 결과에 섞여 나올 때마다 다시 살아나면 안 된다.
+ */
 export async function findExistingExternalProductIds(externalProductIds: string[]) {
   const unique = Array.from(new Set(externalProductIds.filter(Boolean)));
   if (unique.length === 0) return new Set<string>();
   const db = await getDb();
   if (!db) throw new Error("Database is unavailable");
-  const rows = await db.select({ externalProductId: products.externalProductId }).from(products).where(inArray(products.externalProductId, unique));
+  const rows = await db.select({ externalProductId: products.externalProductId }).from(products).where(and(inArray(products.externalProductId, unique), eq(products.isActive, true)));
   return new Set(rows.map(row => row.externalProductId));
 }
 
