@@ -166,9 +166,17 @@ async function findExactTrackedMatchForForcedRefresh(keyword: string, limit: num
   return trackedMatches.find(product => hasFullKeywordMatch(keyword, [product]) && hasUsableStoredPrice([product]));
 }
 
-export async function searchCatalogSafely(keyword: string, limit?: number, options?: { forceExternal?: boolean; callType?: CoupangApiCallType; persistNewResults?: true }): Promise<CatalogSearchResult>;
-export async function searchCatalogSafely(keyword: string, limit: number | undefined, options: { forceExternal?: boolean; callType?: CoupangApiCallType; persistNewResults: false }): Promise<LazyCatalogSearchResult>;
-export async function searchCatalogSafely(keyword: string, limit = 10, options: { forceExternal?: boolean; callType?: CoupangApiCallType; persistNewResults?: boolean } = {}): Promise<CatalogSearchResult | LazyCatalogSearchResult> {
+/**
+ * updateExistingOnly(2026-10-06): 가격 재확인처럼 "이미 추적 중인 상품의 가격만 새로 받으려는"
+ * 호출에서 쓴다. 검색 결과 중 DB에 이미 있는 SKU만 갱신하고 새 SKU는 저장하지 않는다.
+ * 이 옵션이 없던 때는 재확인 1건마다 검색 결과 최대 10개가 새 추적 상품으로 저장돼
+ * (그중 상당수는 옵션 정보 없는 다른 판매자·관련 상품), 1분 주기 전환 뒤 추적 상품이
+ * 10/1 37,237개 → 10/6 54,376개로 불어났다.
+ */
+type SearchCatalogOptions = { forceExternal?: boolean; callType?: CoupangApiCallType; updateExistingOnly?: boolean };
+export async function searchCatalogSafely(keyword: string, limit?: number, options?: SearchCatalogOptions & { persistNewResults?: true }): Promise<CatalogSearchResult>;
+export async function searchCatalogSafely(keyword: string, limit: number | undefined, options: SearchCatalogOptions & { persistNewResults: false }): Promise<LazyCatalogSearchResult>;
+export async function searchCatalogSafely(keyword: string, limit = 10, options: SearchCatalogOptions & { persistNewResults?: boolean } = {}): Promise<CatalogSearchResult | LazyCatalogSearchResult> {
   const callType = options.callType ?? "product-search";
   const persistNewResults = options.persistNewResults ?? true;
   let databaseFallback: CatalogSearchResult["products"] = [];
@@ -302,7 +310,13 @@ export async function searchCatalogSafely(keyword: string, limit = 10, options: 
       };
     }
 
-    const stored = await db.upsertCoupangProducts(relevantResults, "search");
+    const persistable = options.updateExistingOnly
+      ? await (async () => {
+          const existing = await db.findExistingExternalProductIds(relevantResults.map(item => getCoupangVariantKey(item)));
+          return relevantResults.filter(item => existing.has(getCoupangVariantKey(item)));
+        })()
+      : relevantResults;
+    const stored = await db.upsertCoupangProducts(persistable, "search");
     let ranked = removeExcludedTrackingProducts(filterStableDeliveryResults(rankSearchResults(keyword, stored), keyword));
     if (shouldProtectTrackedExactMatch) {
       const exactTrackedMatch = await findExactTrackedMatchForForcedRefresh(keyword, limit);

@@ -41,7 +41,7 @@ describe("관리자 단건 딥링크 갱신", () => {
     mocks.generatePendingDeepLinkForProduct.mockResolvedValue({ processedCount: 1, detail: "새 링크 생성" });
 
     await expect(refreshDeepLinkForExactSku(41)).resolves.toEqual({ status: "ready", message: "정확 SKU를 확인하고 새 딥링크를 생성했습니다." });
-    expect(mocks.searchCatalogSafely).toHaveBeenCalledWith(product.name, 10, { forceExternal: true, callType: "price-tracking" });
+    expect(mocks.searchCatalogSafely).toHaveBeenCalledWith(product.name, 10, { forceExternal: true, callType: "price-tracking", updateExistingOnly: true });
     expect(mocks.generatePendingDeepLinkForProduct).toHaveBeenCalledWith(41);
     expect(mocks.recordDeferredSearchRecheckMiss).not.toHaveBeenCalled();
   });

@@ -45,7 +45,7 @@ export async function recheckDeferredSearchProducts() {
   for (const candidate of candidates) {
     let result: Awaited<ReturnType<typeof searchCatalogSafely>>;
     try {
-      result = await searchCatalogSafely(buildPriceRefreshSearchKeyword(candidate), 10, { forceExternal: true, callType: "price-tracking" });
+      result = await searchCatalogSafely(buildPriceRefreshSearchKeyword(candidate), 10, { forceExternal: true, callType: "price-tracking", updateExistingOnly: true });
     } catch (error) {
       const reason = error instanceof Error ? error.message : "알 수 없는 Search API 오류";
       await db.recordDeferredSearchRecheckError(candidate.id, reason);
@@ -85,7 +85,9 @@ async function recheckDeferredSearchProductsForPriceJob() {
     try {
       match = await findSkuWithFallbackQueries(candidate, query => {
         apiCalls += 1;
-        return searchCatalogSafely(query, 10, { forceExternal: true, callType: "price-tracking" });
+        // 2026-10-06: 재확인은 이미 추적 중인 SKU의 가격만 갱신한다. 새 검색 결과를 저장하면
+        // 재확인할 때마다 추적 상품이 최대 9개씩 늘어난다(catalogSearch.ts updateExistingOnly 참고).
+        return searchCatalogSafely(query, 10, { forceExternal: true, callType: "price-tracking", updateExistingOnly: true });
       });
     } catch (error) {
       attemptedCount += 1;

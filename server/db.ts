@@ -3531,6 +3531,16 @@ export async function pruneGoodViaEvents(before: Date, maxChunks = 20) {
 // ============================================================
 // 2026-10-01 리뉴얼 5단계: GASIN GIVE 기부 장부 (규칙은 server/give.ts)
 // ------------------------------------------------------------
+/** 주어진 externalProductId 중 DB에 이미 있는 것만 돌려준다(가격 재확인이 새 SKU를 저장하지 않게). */
+export async function findExistingExternalProductIds(externalProductIds: string[]) {
+  const unique = Array.from(new Set(externalProductIds.filter(Boolean)));
+  if (unique.length === 0) return new Set<string>();
+  const db = await getDb();
+  if (!db) throw new Error("Database is unavailable");
+  const rows = await db.select({ externalProductId: products.externalProductId }).from(products).where(inArray(products.externalProductId, unique));
+  return new Set(rows.map(row => row.externalProductId));
+}
+
 export async function listDonationLedgerEntries() {
   const db = await getDb();
   if (!db) throw new Error("Database is unavailable");

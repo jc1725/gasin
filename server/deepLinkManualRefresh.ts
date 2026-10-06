@@ -20,6 +20,8 @@ export async function refreshDeepLinkForExactSku(productId: number): Promise<Man
   const result = await searchCatalogSafely(product.name.trim().slice(0, 50), 10, {
     forceExternal: true,
     callType: "price-tracking",
+    // 2026-10-06: 딥링크 재확인도 이 상품 SKU만 필요하다. 새 검색 결과는 저장하지 않는다.
+    updateExistingOnly: true,
   });
   if (result.source === "rate_limited") {
     return {

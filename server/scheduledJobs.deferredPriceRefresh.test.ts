@@ -41,10 +41,10 @@ describe("deferred search price refresh job", () => {
     await expect(refreshDeferredSearchPrices()).resolves.toMatchObject({ processedCount: 2 });
     expect(PRICE_REFRESH_SEARCH_BATCH_SIZE).toBe(30);
     expect(mocks.getDeferredSearchProducts).toHaveBeenCalledWith(30);
-    expect(mocks.searchCatalogSafely).toHaveBeenNthCalledWith(1, "가격 갱신 상품 A 20cm 1개", 10, { forceExternal: true, callType: "price-tracking" });
-    expect(mocks.searchCatalogSafely).toHaveBeenNthCalledWith(2, "가격 갱신 상품 B", 10, { forceExternal: true, callType: "price-tracking" });
+    expect(mocks.searchCatalogSafely).toHaveBeenNthCalledWith(1, "가격 갱신 상품 A 20cm 1개", 10, { forceExternal: true, callType: "price-tracking", updateExistingOnly: true });
+    expect(mocks.searchCatalogSafely).toHaveBeenNthCalledWith(2, "가격 갱신 상품 B", 10, { forceExternal: true, callType: "price-tracking", updateExistingOnly: true });
     // 2차 검색어는 더 짧은 형태이며, 상품 ID 숫자로는 절대 검색하지 않는다.
-    expect(mocks.searchCatalogSafely).toHaveBeenNthCalledWith(3, "가격 갱신 상품", 10, { forceExternal: true, callType: "price-tracking" });
+    expect(mocks.searchCatalogSafely).toHaveBeenNthCalledWith(3, "가격 갱신 상품", 10, { forceExternal: true, callType: "price-tracking", updateExistingOnly: true });
     for (const [query] of mocks.searchCatalogSafely.mock.calls) expect(query).not.toMatch(/^\d+$/);
     expect(mocks.recordDeferredSearchRecheckMiss).toHaveBeenCalledWith(42, expect.stringContaining("정확 SKU"));
     expect(mocks.generatePendingDeepLinks).toHaveBeenCalledTimes(1);

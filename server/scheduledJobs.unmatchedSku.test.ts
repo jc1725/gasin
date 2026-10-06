@@ -116,7 +116,7 @@ describe("GoldBox option SKU refresh gaps", () => {
 
     await refreshTrackedPrices();
 
-    expect(mocks.searchCatalogSafely).toHaveBeenCalledWith("안전 재확인 상품", 10, { forceExternal: true, callType: "price-tracking" });
+    expect(mocks.searchCatalogSafely).toHaveBeenCalledWith("안전 재확인 상품", 10, { forceExternal: true, callType: "price-tracking", updateExistingOnly: true });
     expect(mocks.recordDeferredSearchRecheckMiss).not.toHaveBeenCalled();
     expect(mocks.finishSyncRun).toHaveBeenCalledWith(17, "success", 0, expect.stringContaining("deferred 검색 상품 1개 재확인: fresh 1개 · 수집기 관측 유지 0개 · 정확 SKU 미일치 0개"));
   });
