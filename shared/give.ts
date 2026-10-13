@@ -6,7 +6,9 @@
 //   기부를 클릭·이동 행위에 묶는 표현("클릭하면 기부" 등)은 쓰지 않고 회사 정책이라는
 //   사실로만 서술한다. 금지 표현은 아래 GIVE_FORBIDDEN_PHRASES로 테스트가 막는다
 //   (server/giveCopy.test.ts).
-export const DONATION_RATE_PCT = 30;
+// 2026-10-13: 30% → 10%로 변경(인환님 결정). 장부 행은 만들 때의 기부율을 스냅샷으로 저장하므로
+// 이미 만든 행의 기부율은 그대로다(server/give.ts saveDonationLedgerEntry).
+export const DONATION_RATE_PCT = 10;
 export const GIVE_PATH = "/give";
 
 export const GIVE_PROMISE = `가신은 실제 지급받은 쿠팡 파트너스 수익금(세후)의 ${DONATION_RATE_PCT}%를 기부합니다.`;
@@ -21,10 +23,10 @@ export const FIRST_PAYOUT_EXPECTED = { earnMonth: "2026-08", expectedDate: "2026
 // 사이트 어디에도 쓰면 안 되는 표현. 개인별 기부 귀속을 알 수 없고(기획안 12·17항),
 // 구매·클릭에 기부를 묶으면 클릭유도 문구로 볼 소지가 있다(운영정책 4.1 2)).
 export const GIVE_FORBIDDEN_PHRASES = [
-  "구매금액의 30%",
-  "구매 금액의 30%",
-  "구매금액 중 30%",
-  "구매하면 30%",
+  `구매금액의 ${DONATION_RATE_PCT}%`,
+  `구매 금액의 ${DONATION_RATE_PCT}%`,
+  `구매금액 중 ${DONATION_RATE_PCT}%`,
+  `구매하면 ${DONATION_RATE_PCT}%`,
   "구매하면 기부",
   "클릭하면 기부",
   "클릭만으로",
@@ -63,7 +65,7 @@ export const DONATION_STATUS_LABELS: Record<DonationStatus, string> = {
   donated: "기부 완료",
 };
 
-/** 기부금 = 세후 지급액 × 기부율, 원 미만 올림(30%를 한 번도 밑돌지 않게). 정수 연산만 쓴다. */
+/** 기부금 = 세후 지급액 × 기부율, 원 미만 올림(기부율을 한 번도 밑돌지 않게). 정수 연산만 쓴다. */
 export function computeDonationKrw(payoutNetKrw: number, ratePct: number) {
   return Math.ceil((payoutNetKrw * ratePct) / 100);
 }

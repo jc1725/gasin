@@ -17,7 +17,7 @@ import {
 } from "@shared/give";
 
 // 2026-10-01 리뉴얼 1단계: GASIN GIVE 페이지. 기부 기준과 정산 일정은 확정된 내용(세후 기준,
-// 30%, 쿠팡 파트너스 운영정책 5의 지급 일정)만 적는다. 5단계부터 월별 내역은 관리자 장부
+// 기부율 DONATION_RATE_PCT, 쿠팡 파트너스 운영정책 5의 지급 일정)만 적는다. 5단계부터 월별 내역은 관리자 장부
 // (donationLedger, /admin/give)의 공개 행을 보여 준다.
 const basisItems = [
   { Icon: HeartHandshake, title: `기부율 ${DONATION_RATE_PCT}%`, body: GIVE_PROMISE },

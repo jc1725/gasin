@@ -19,10 +19,11 @@ function listSourceFiles(dir: string): string[] {
 }
 
 describe("GASIN GIVE 문구", () => {
-  it("약속 문구는 '실제 지급받은 쿠팡 파트너스 수익금(세후)의 30%'를 정확히 말한다", () => {
-    expect(DONATION_RATE_PCT).toBe(30);
+  it("약속 문구는 '실제 지급받은 쿠팡 파트너스 수익금(세후)의 10%'를 정확히 말한다", () => {
+    expect(DONATION_RATE_PCT).toBe(10);
     expect(GIVE_PROMISE).toContain("실제 지급받은 쿠팡 파트너스 수익금(세후)");
-    expect(GIVE_PROMISE).toContain("30%");
+    expect(GIVE_PROMISE).toContain("10%");
+    expect(GIVE_PROMISE).not.toContain("30%");
     expect(GIVE_PROMISE).not.toContain("구매금액");
   });
 

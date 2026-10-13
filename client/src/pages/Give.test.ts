@@ -21,7 +21,7 @@ describe("GASIN GIVE 페이지 (리뉴얼 1단계)", () => {
   it("/give 전용 메타데이터를 가진다", () => {
     const meta = getPageMeta("/give");
     expect(meta.title).toContain("GASIN GIVE");
-    expect(meta.description).toContain("수익금(세후)의 30%");
+    expect(meta.description).toContain("수익금(세후)의 10%");
   });
 
   it("약속·고지 문구는 shared/give.ts의 상수로만 표시하고, 지급 전에는 금액을 보여 주지 않는다", () => {
