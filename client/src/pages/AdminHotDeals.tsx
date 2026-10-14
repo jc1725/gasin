@@ -5,6 +5,8 @@ import { toast } from "sonner";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { isAdminUser } from "@shared/const";
 import { trpc } from "@/lib/trpc";
+import HotDealImage from "@/components/HotDealImage";
+import { looksLikeHotDealPageUrl, normalizeHotDealImageUrl } from "@/lib/hotDealImage";
 
 type Draft = {
   title: string;
@@ -84,7 +86,7 @@ function toPayload(draft: Draft) {
     title: draft.title.trim(),
     storeName: draft.storeName.trim() || "스마트스토어",
     description: draft.description.trim() || null,
-    imageUrl: draft.imageUrl.trim() || null,
+    imageUrl: normalizeHotDealImageUrl(draft.imageUrl) || null,
     purchaseUrl: draft.purchaseUrl.trim(),
     regularPrice,
     salePrice,
@@ -102,6 +104,7 @@ export default function AdminHotDeals() {
   const deals = trpc.hotDeals.adminList.useQuery(undefined, { enabled: isAdmin });
   const [draft, setDraft] = useState<Draft>(emptyDraft);
   const [editingId, setEditingId] = useState<number | null>(null);
+  const [imagePreviewStatus, setImagePreviewStatus] = useState<"loaded" | "failed" | null>(null);
   const create = trpc.hotDeals.create.useMutation({ onError: error => toast.error(error.message) });
   const update = trpc.hotDeals.update.useMutation({ onError: error => toast.error(error.message) });
   const remove = trpc.hotDeals.remove.useMutation({ onError: error => toast.error(error.message) });
@@ -183,6 +186,16 @@ export default function AdminHotDeals() {
           {field("특가 종료 일시(선택)", "endsAt", "datetime-local")}
           {field("정렬 순서", "sortOrder", "number", "0")}
         </div>
+        {draft.imageUrl.trim() ? <div className="mt-3 flex items-center gap-3 rounded-2xl border border-[#d6e5d7] bg-white p-3 dark:bg-[#1d3a2b]">
+          <div className="grid size-16 shrink-0 place-items-center overflow-hidden rounded-xl bg-[#edf5ee] text-[10px] font-bold text-[#a44c45]">
+            <HotDealImage key={draft.imageUrl} src={draft.imageUrl} alt="이미지 미리보기" className="size-full object-cover" onStatusChange={setImagePreviewStatus} fallback={<span>불러오기 실패</span>} />
+          </div>
+          <p className="text-[11px] leading-relaxed text-[#58705d] dark:text-[#a5c5ad]">
+            {imagePreviewStatus === "failed"
+              ? (looksLikeHotDealPageUrl(draft.imageUrl) ? "이 주소는 상품 페이지 주소로 보입니다. 이미지를 우클릭해 '이미지 주소 복사'로 얻은 주소(.jpg·.png 등 이미지 파일 주소)를 넣어 주세요." : "이미지를 불러오지 못했습니다. 주소가 이미지 파일 주소인지, 이미지 서버가 외부 사이트 표시를 막고 있지 않은지 확인해 주세요.")
+              : imagePreviewStatus === "loaded" ? "미리보기가 표시되면 공개 화면에서도 같은 이미지가 보입니다." : "미리보기를 불러오는 중입니다."}
+          </p>
+        </div> : null}
         <p className="mt-3 flex items-start gap-1.5 text-[11px] leading-relaxed text-[#58705d] dark:text-[#a5c5ad]"><CalendarClock className="mt-0.5 size-3.5 shrink-0" />기간을 비워두면 항상 노출됩니다. 시작 전 또는 종료 후에는 공개 특가 목록에서 자동으로 숨겨집니다.</p>
         <label className="mt-3 grid gap-1.5 text-xs font-bold text-[#3b5c43]">
           <span>특가 설명(선택)</span>
@@ -201,7 +214,7 @@ export default function AdminHotDeals() {
         {deals.isLoading ? <p className="py-6 text-center text-sm text-[#718074]">등록 상품을 불러오는 중입니다.</p> : null}
         {(deals.data ?? []).map(deal => (
           <article key={deal.id} className="flex gap-3 rounded-2xl border border-[#dbe8dc] bg-white p-3 shadow-sm dark:border-[#31513c] dark:bg-[#183024]">
-            <div className="grid size-14 shrink-0 place-items-center overflow-hidden rounded-xl bg-[#edf5ee] text-[#5d8a66]">{deal.imageUrl ? <img src={deal.imageUrl} alt="" className="size-full object-cover" /> : <Flame className="size-5" />}</div>
+            <div className="grid size-14 shrink-0 place-items-center overflow-hidden rounded-xl bg-[#edf5ee] text-[#5d8a66]"><HotDealImage src={deal.imageUrl} alt="" className="size-full object-cover" fallback={<Flame className="size-5" />} /></div>
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2"><h2 className="truncate text-sm font-extrabold text-[#213c27] dark:text-[#e6f5e8]">{deal.title}</h2><span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ${deal.isActive ? "bg-[#e4f5e7] text-[#207542]" : "bg-[#f2f2f2] text-[#7b7b7b]"}`}>{deal.isActive ? "공개" : "비공개"}</span></div>
               <p className="mt-1 text-xs font-bold text-[#176b3a]">{won(deal.salePrice)}</p>

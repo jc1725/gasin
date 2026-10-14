@@ -1,4 +1,5 @@
 import { Flame, ExternalLink, Store, Tag } from "lucide-react";
+import HotDealImage from "@/components/HotDealImage";
 import { trpc } from "@/lib/trpc";
 
 const won = (value: number) => new Intl.NumberFormat("ko-KR").format(value) + "원";
@@ -36,7 +37,7 @@ export default function HotDeals() {
         const period = formatPeriod(deal.startsAt, deal.endsAt);
         return <article key={deal.id} className="overflow-hidden rounded-3xl border border-[#d9e8da] bg-white shadow-[0_10px_28px_rgba(40,80,48,.08)] dark:border-[#31513c] dark:bg-[#183024]">
           <div className="relative aspect-[4/3] bg-[#edf5ee]">
-            {deal.imageUrl ? <img src={deal.imageUrl} alt={deal.title} className="size-full object-cover" /> : <div className="flex size-full flex-col items-center justify-center text-[#5d8a66]"><Store className="size-9" /><span className="mt-2 text-xs font-bold">스마트스토어 특가</span></div>}
+            <HotDealImage src={deal.imageUrl} alt={deal.title} className="size-full object-cover" fallback={<div className="flex size-full flex-col items-center justify-center text-[#5d8a66]"><Store className="size-9" /><span className="mt-2 text-xs font-bold">스마트스토어 특가</span></div>} />
             {discount ? <span className="absolute left-3 top-3 rounded-full bg-[#e85d4f] px-2.5 py-1 text-xs font-extrabold text-white">{discount}% 특가</span> : null}
           </div>
           <div className="space-y-3 p-4">

@@ -123,7 +123,8 @@ const smartstoreHotDealInput = z.object({
   title: z.string().trim().min(2).max(500),
   storeName: z.string().trim().min(1).max(160).default("스마트스토어"),
   description: z.string().trim().max(4_000).nullable().optional(),
-  imageUrl: z.string().trim().url().max(2_000).nullable().optional(),
+  // http 주소는 화면 CSP(img-src https:)에 막혀 깨져 보이므로 저장 때 https로 올린다.
+  imageUrl: z.string().trim().transform(value => value.replace(/^http:\/\//i, "https://")).pipe(z.string().url().max(2_000)).nullable().optional(),
   purchaseUrl: z.string().trim().url().max(2_000),
   regularPrice: z.number().int().positive().nullable().optional(),
   salePrice: z.number().int().positive(),
