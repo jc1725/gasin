@@ -26,6 +26,25 @@ function toDate(value: Date | string) {
   return value instanceof Date ? value : new Date(value);
 }
 
+export type LatestCheckedPrice = { price: number; checkedAt: Date; source: "confirmed" | "collector" };
+
+/**
+ * "최근 확인 가격" 카드용: 사용자가 직접 확인한 가격과 수집기가 관측한 가격 중 가장 최근 것을 고른다.
+ * 2026-10-14: 카드가 사용자 확인 가격만 보고 있어서, 수집기가 매일 가격을 모으는 상품도
+ * 몇 달 전(8/18) 수동 확인 값이 "최근 확인"으로 보였다. 품절 관측과 가격이 없는 관측은 제외하고,
+ * 시각이 같으면 사용자 확인 값을 우선한다.
+ */
+export function getLatestCheckedPrice(confirmed: ConfirmedPricePoint[], collected: CollectedPricePoint[]): LatestCheckedPrice | null {
+  const candidates: LatestCheckedPrice[] = [
+    ...confirmed.map(point => ({ price: point.price, checkedAt: toDate(point.checkedAt), source: "confirmed" as const })),
+    ...collected
+      .filter(point => point.inStock !== false && typeof point.price === "number" && Number.isSafeInteger(point.price) && point.price > 0)
+      .map(point => ({ price: point.price as number, checkedAt: toDate(point.collectedAt), source: "collector" as const })),
+  ].filter(point => !Number.isNaN(point.checkedAt.getTime()));
+  if (candidates.length === 0) return null;
+  return candidates.reduce((latest, point) => point.checkedAt.getTime() > latest.checkedAt.getTime() ? point : latest);
+}
+
 /** 최근 수집 관측 중 품절 상태를 가격 이력 카드에 표시하기 위한 목록입니다. */
 export function getRecentSoldOutObservations(points: CollectedPricePoint[], limit = 6): SoldOutObservation[] {
   return points
