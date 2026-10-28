@@ -39,7 +39,26 @@ const SEARCH_TOKEN_EQUIVALENTS: Record<string, string[]> = {
   미스트: ["미스크"],
   멘솔: ["멘톨", "쿨멘솔", "쿨멘톨"],
   멘톨: ["멘솔", "쿨멘솔", "쿨멘톨"],
+  // 2026-10-28: "종근당건강 RTG 오메가3"는 0건인데 "종근당 알티지 오메가3"는 나오던 문제.
+  // 영문 약어(RTG)와 한글 표기(알티지)를 같은 말로 취급한다.
+  rtg: ["알티지"],
+  알티지: ["rtg"],
+  비타민d: ["비타민디"],
+  비타민디: ["비타민d"],
+  코큐텐: ["coq10", "코엔자임q10"],
+  coq10: ["코큐텐", "코엔자임q10"],
 };
+
+/**
+ * 브랜드 뒤에 붙는 회사/유통 접미사. "종근당건강"과 상품명의 "종근당"처럼
+ * 접미사를 뗀 형태도 같은 브랜드로 본다. 떼고 남는 부분이 2자 미만이면 적용하지 않는다.
+ */
+const BRAND_SUFFIX_PATTERN = /(건강|제약|헬스케어|헬스|코리아|공식스토어|공식몰|공식)$/;
+
+function stripBrandSuffix(token: string) {
+  const stripped = token.replace(BRAND_SUFFIX_PATTERN, "");
+  return stripped !== token && stripped.length >= 2 ? stripped : null;
+}
 
 function editDistance(left: string, right: string) {
   const previous = Array.from({ length: right.length + 1 }, (_, index) => index);
@@ -124,7 +143,12 @@ function matchesOptionToken(token: string, product: SearchableProduct, normalize
 /** 같은 제품군을 뜻하는 쿠팡 상품명 표기 변형을 관련도 비교에 함께 사용합니다. */
 export function getSearchTokenVariants(token: string) {
   const normalized = normalize(token);
-  return Array.from(new Set([normalized, ...(SEARCH_TOKEN_EQUIVALENTS[normalized] ?? [])]));
+  const stripped = stripBrandSuffix(normalized);
+  const base = stripped ? [normalized, stripped] : [normalized];
+  return Array.from(new Set([
+    ...base,
+    ...base.flatMap(item => SEARCH_TOKEN_EQUIVALENTS[item] ?? []),
+  ]));
 }
 
 /**
@@ -135,6 +159,18 @@ export function buildSearchKeywordVariants(keyword: string) {
   const trimmed = keyword.trim().replace(/\s+/g, " ");
   if (!trimmed) return [];
   const variants = [trimmed];
+  // 쿠팡 검색 API는 "종근당건강 RTG"처럼 상품명에 없는 표기를 넣으면 결과가 비는 경우가 있어
+  // 브랜드 접미사를 떼고 영문 약어를 한글 표기로 바꾼 검색어를 첫 대체 검색어로 둔다.
+  const canonical = trimmed
+    .split(" ")
+    .map(word => {
+      const lower = word.toLowerCase();
+      const alias = SEARCH_TOKEN_EQUIVALENTS[lower]?.find(item => /[가-힣]/.test(item));
+      if (alias && /^[a-z0-9]+$/.test(lower)) return alias;
+      return stripBrandSuffix(word) ?? word;
+    })
+    .join(" ");
+  if (canonical !== trimmed) variants.push(canonical);
   if (trimmed.includes("헤드앤숄더") && trimmed.includes("샴푸")) {
     const coolingToken = trimmed.includes("멘솔") || trimmed.includes("멘톨") ? " 쿨 멘솔" : "";
     variants.push(`헤드앤숄더 샴푸${coolingToken}`);

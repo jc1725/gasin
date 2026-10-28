@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { filterStableDeliveryResults, hasFullKeywordMatch, rankSearchResults } from "./searchRelevance";
+import { buildSearchKeywordVariants, filterStableDeliveryResults, hasFullKeywordMatch, rankSearchResults } from "./searchRelevance";
 
 describe("rankSearchResults", () => {
   it("puts keyword-matching products ahead of unrelated API results while preserving original order on ties", () => {
@@ -238,5 +238,26 @@ describe("저장된 용량·수량으로 옵션 관련도를 매긴다", () => {
       { name: "비플레인 녹두 약산성 클렌징폼", variantLabel: "80ml", quantity: 1 },
       { name: "비플레인 녹두 약산성 클렌징폼", variantLabel: "80ml", quantity: 2 },
     ])[0]!.quantity).toBe(2);
+  });
+});
+
+describe("브랜드 접미사·영문 약어 표기 차이 (2026-10-28)", () => {
+  const omega = { name: "종근당 알티지 오메가3 비타민D 마그네슘 90캡슐", currentPrice: 20000, isRocket: true };
+  const other = { name: "닥터스베스트 오메가3 EPA DHA 60캡슐", currentPrice: 15000, isRocket: true };
+
+  it("'종근당건강 RTG 오메가3'로도 '종근당 알티지 오메가3' 상품이 나온다", () => {
+    expect(rankSearchResults("종근당건강 RTG 오메가3", [other, omega])).toEqual([omega]);
+  });
+  it("기존 표기 '종근당 알티지 오메가3'도 그대로 나온다", () => {
+    expect(rankSearchResults("종근당 알티지 오메가3", [other, omega])).toEqual([omega]);
+  });
+  it("다른 브랜드는 여전히 걸러진다", () => {
+    expect(rankSearchResults("종근당건강 RTG 오메가3", [other])).toEqual([]);
+  });
+  it("hasFullKeywordMatch도 동일하게 인정한다", () => {
+    expect(hasFullKeywordMatch("종근당건강 RTG 오메가3", [omega])).toBe(true);
+  });
+  it("쿠팡 API용 대체 검색어에 정규화된 표기가 들어간다", () => {
+    expect(buildSearchKeywordVariants("종근당건강 RTG 오메가3")).toContain("종근당 알티지 오메가3");
   });
 });
