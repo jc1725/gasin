@@ -7,6 +7,10 @@ type GroupedProduct = {
   inStock?: boolean;
   /** 값이 없으면 확인된 가격으로 본다. */
   refreshState?: string | null;
+  /** 아래 세 값은 용량을 못 읽은 행(세트 상품 등)을 상품명·옵션·수량으로 묶을 때만 쓴다. */
+  name?: string | null;
+  variantLabel?: string | null;
+  quantity?: number | null;
 };
 
 type RecencyGroupedProduct = GroupedProduct & { lastSeenAt: Date };
@@ -32,6 +36,28 @@ function groupKeyOf(product: GroupedProduct) {
   // 그룹 구성 자체에서 뺀다.
   if (isUngroupedProductKey(key)) return null;
   return key.toLowerCase();
+}
+
+/**
+ * 2026-10-30: "프리메라 오가니언스 2종 세트 · 1세트 · 36,650원"처럼 용량(ml·g)이 없는 세트 상품은
+ * 그룹키를 만들 수 없어 판매자별 SKU 키("sku:…")로 남고, 같은 제품·같은 구성이 카드로 여러 장 떴다.
+ * 이런 행은 정규화한 상품명 + 옵션 라벨 + 수량이 모두 같을 때만 같은 제품으로 본다.
+ * 옵션 라벨이 비어 있으면(어떤 구성인지 모름) 합치지 않는다 — 상품명이 같아도 색상·구성이 다른
+ * 행일 수 있어서, 서로 다른 제품을 합치는 쪽이 중복이 남는 쪽보다 위험하다.
+ */
+function normalizeForKey(value: string) {
+  return value.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
+}
+
+function fallbackKeyOf(product: GroupedProduct) {
+  const name = product.name ? normalizeForKey(product.name) : "";
+  const label = product.variantLabel ? normalizeForKey(product.variantLabel) : "";
+  if (!name || !label) return null;
+  return `named|${name}|${label}|${product.quantity && product.quantity > 0 ? product.quantity : 1}`;
+}
+
+function dedupeKeyOf(product: GroupedProduct) {
+  return groupKeyOf(product) ?? fallbackKeyOf(product);
 }
 
 function isPurchasable(product: GroupedProduct) {
@@ -68,7 +94,7 @@ export function selectCheapestPerProductGroup<T extends GroupedProduct>(products
   const positionByGroup = new Map<string, number>();
 
   for (const product of products) {
-    const groupKey = groupKeyOf(product);
+    const groupKey = dedupeKeyOf(product);
     if (!groupKey) {
       result.push(product);
       continue;
@@ -146,7 +172,7 @@ type RelatedVariantRow = GroupedProduct & StoredGroupKeyInput & { id: number; va
  * 입력 순서(단위가·현재가 오름차순)는 유지한다. DB 데이터는 건드리지 않고 표시만 줄인다.
  */
 export function selectRelatedVariantsForDisplay<T extends RelatedVariantRow>(current: RelatedVariantRow, rows: T[]): T[] {
-  const keyOf = (row: RelatedVariantRow) => groupKeyOf({ ...row, familyVariantKey: row.familyVariantKey ?? resolveStoredProductGroupKey(row) });
+  const keyOf = (row: RelatedVariantRow) => dedupeKeyOf({ ...row, familyVariantKey: row.familyVariantKey ?? resolveStoredProductGroupKey(row) });
   const currentGroup = keyOf(current);
   const others = rows.filter(row => row.id !== current.id && !(currentGroup && keyOf(row) === currentGroup));
   const shadows = others.map(row => ({ ...row, familyVariantKey: row.familyVariantKey ?? resolveStoredProductGroupKey(row), original: row }));
