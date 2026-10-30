@@ -46,7 +46,8 @@ function groupKeyOf(product: GroupedProduct) {
  * 행일 수 있어서, 서로 다른 제품을 합치는 쪽이 중복이 남는 쪽보다 위험하다.
  */
 function normalizeForKey(value: string) {
-  return value.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
+  // tsconfig에 target이 없어 정규식 u 플래그(\p{L})를 쓸 수 없다. 영문·숫자·한글·일본어·한자만 남긴다.
+  return value.toLowerCase().replace(/[^a-z0-9\u3131-\u318e\uac00-\ud7a3\u3040-\u30ff\u4e00-\u9fff]+/g, "");
 }
 
 function fallbackKeyOf(product: GroupedProduct) {
