@@ -1,4 +1,3 @@
-import { getCoupangVariantKey } from "./coupang";
 import type { CoupangProduct } from "./coupang";
 
 /**
@@ -10,6 +9,19 @@ import type { CoupangProduct } from "./coupang";
 
 const SIBLING_SEARCH_KEYWORD_MAX_LENGTH = 50;
 const TRAILING_QUANTITY_PATTERN = /\s*,\s*\d+\s*(?:개입|개|팩|입|병|캔|봉|박스|세트|롤|매)\s*$/;
+
+/** 옵션 SKU 식별자: productId:itemId:vendorItemId (없으면 URL 전체). coupang.ts를 불러오지 않는 순수 함수다. */
+function optionKeyOf(item: Pick<CoupangProduct, "productId" | "productUrl">) {
+  try {
+    const url = new URL(item.productUrl);
+    const itemId = url.searchParams.get("itemId");
+    const vendorItemId = url.searchParams.get("vendorItemId");
+    if (itemId && vendorItemId) return `${item.productId}:${itemId}:${vendorItemId}`;
+  } catch {
+    // 잘못된 URL이면 아래 대체 키를 쓴다.
+  }
+  return `${item.productId}:${item.productUrl}`;
+}
 
 /** externalProductId("productId:itemId:vendorItemId")에서 productId 부분만 꺼낸다. */
 export function extractCoupangProductId(externalProductId: string) {
@@ -28,11 +40,11 @@ export function hasProductInResults(productId: string, known: CoupangProduct[]) 
 
 /** 후보 중 같은 productId이면서 아직 모르는 옵션(vendorItemId)만 고른다. 다른 상품은 절대 받지 않는다. */
 export function selectSiblingOptions(candidates: CoupangProduct[], productId: string, known: CoupangProduct[]) {
-  const knownKeys = new Set(known.map(item => getCoupangVariantKey(item)));
+  const knownKeys = new Set(known.map(item => optionKeyOf(item)));
   const seen = new Set<string>();
   return candidates.filter(item => {
     if (String(item.productId) !== productId) return false;
-    const key = getCoupangVariantKey(item);
+    const key = optionKeyOf(item);
     if (knownKeys.has(key) || seen.has(key)) return false;
     seen.add(key);
     return true;

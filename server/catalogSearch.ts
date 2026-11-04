@@ -295,9 +295,6 @@ export async function searchCatalogSafely(keyword: string, limit = 10, options: 
     // 10개 이상 쌓인 경우 카드는 1~2개뿐인데도 "충분하다"고 보고 쿠팡 API를 건너뛰어
     // 다른 옵션(예: 비타라온 35ml 2개)이 영영 검색에 나오지 않는다.
     const dedupedDatabaseMatches = dedupeKeepingOptions(rankedDatabaseMatches);
-    if (callType === "product-search") {
-      console.log(`[search-debug] db-stage keyword="${keyword}" dbRows=${databaseMatches.length} ranked=${rankedDatabaseMatches.length} cards=${dedupedDatabaseMatches.length} items=${JSON.stringify(dedupedDatabaseMatches.map(m => ({ id: m.id, ext: m.externalProductId, name: m.name, price: m.currentPrice, qty: m.quantity, key: m.familyVariantKey })))}`);
-    }
     const hasSufficientStoredCoverage = dedupedDatabaseMatches.length >= limit;
     if (hasSufficientStoredCoverage && hasUsableStoredPrice(rankedDatabaseMatches)) {
       return { products: dedupedDatabaseMatches, source: "database", message: "가격 추적 목록에서 찾은 결과입니다." };
@@ -350,7 +347,7 @@ export async function searchCatalogSafely(keyword: string, limit = 10, options: 
           if (siblingKeyword) {
             const siblingCandidates = await searchCoupangProducts(siblingKeyword, limit, callType);
             const siblings = selectSiblingOptions(siblingCandidates, trackedProductId, known);
-            console.log(`[search-debug] sibling-search keyword="${siblingKeyword}" productId=${trackedProductId} candidates=${siblingCandidates.length} siblings=${JSON.stringify(siblings.map(s => ({ vid: getCoupangVariantKey(s), name: s.productName, price: s.productPrice })))}`);
+            console.log(`[search-debug] sibling-search keyword="${siblingKeyword}" productId=${trackedProductId} candidates=${siblingCandidates.length} siblings=${JSON.stringify(siblings.map(s => ({ pid: s.productId, name: s.productName, price: s.productPrice })))}`);
             if (siblings.length > 0) relevantResults = [...relevantResults, ...siblings];
           }
         } catch (error) {
@@ -360,11 +357,6 @@ export async function searchCatalogSafely(keyword: string, limit = 10, options: 
       }
     }
     const shouldProtectTrackedExactMatch = callType === "product-search" && options.forceExternal === true;
-    // DEBUG(임시): 관련도 필터 전 원본 응답과 필터 후 개수 — 같은 상품의 다른 옵션이 API에 오는지, 필터가 지우는지 진단
-    if (callType === "product-search") {
-      console.log(`[search-debug] keyword="${keyword}" usedKeyword="${searchKeyword}" raw=${results.length} relevant=${relevantResults.length} db=${databaseFallback.length}`);
-      console.log(`[search-debug] raw items: ${JSON.stringify(results.map(r => ({ pid: r.productId, vid: getCoupangVariantKey(r), name: r.productName, price: r.productPrice, kept: relevantResults.some(k => getCoupangVariantKey(k) === getCoupangVariantKey(r)) })))}`);
-    }
 
     if (relevantResults.length === 0) {
       // 쿠팡이 검색어와 무관한 기본 상품을 반환하는 경우가 있다. 이런 응답은
