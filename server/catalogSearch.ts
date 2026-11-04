@@ -346,6 +346,8 @@ export async function searchCatalogSafely(keyword: string, limit = 10, options: 
       // 실제로 방문자가 클릭(상세 열람·찜)하기 전에는 DB에 아무것도 남기지 않는다.
       // 재검색 시 쿠팡 API를 또 부르지 않도록 원본 응답만 짧게 캐시해 둔다.
       cacheRawSearchResults(keyword, relevantResults);
+      // DEBUG: API가 반환한 항목 확인 (같은 상품의 다른 옵션이 오는지 진단)
+      console.log(`[search-debug] keyword="${keyword}" apiResults=${relevantResults.length}:`, relevantResults.map(r => ({ pid: r.productId, name: r.productName, price: r.productPrice })));
       const ephemeral: LazyCatalogSearchResult["products"] = relevantResults.map(item => toEphemeralSearchProduct(keyword, item));
       if (shouldProtectTrackedExactMatch) {
         const exactTrackedMatch = await findExactTrackedMatchForForcedRefresh(keyword, limit);
