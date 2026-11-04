@@ -284,15 +284,23 @@ export async function searchCatalogSafely(keyword: string, limit = 10, options: 
     // 저장 상품이 API 결과로 밀려나 사라지던 예전 회귀는, 아래 병합 로직이 DB 결과를
     // 항상 먼저 배치해(동률 시 먼저 나온 항목이 살아남는 selectCheapestPerProductGroup
     // 규칙) 그대로 막는다.
-    const hasSufficientStoredCoverage = rankedDatabaseMatches.length >= limit;
+    // 2026-11-04: "저장 결과가 충분한가"는 같은 상품을 합친 뒤(카드 기준)의 개수로 판단한다.
+    // 합치기 전 행 수로 판단하면, 옵션 변경·itemId 재발급 등으로 같은 상품의 행이 DB에
+    // 10개 이상 쌓인 경우 카드는 1~2개뿐인데도 "충분하다"고 보고 쿠팡 API를 건너뛰어
+    // 다른 옵션(예: 비타라온 35ml 2개)이 영영 검색에 나오지 않는다.
+    const dedupedDatabaseMatches = dedupeKeepingOptions(rankedDatabaseMatches);
+    if (callType === "product-search") {
+      console.log(`[search-debug] db-stage keyword="${keyword}" dbRows=${databaseMatches.length} ranked=${rankedDatabaseMatches.length} cards=${dedupedDatabaseMatches.length} items=${JSON.stringify(dedupedDatabaseMatches.map(m => ({ id: m.id, ext: m.externalProductId, name: m.name, price: m.currentPrice, qty: m.quantity, key: m.familyVariantKey })))}`);
+    }
+    const hasSufficientStoredCoverage = dedupedDatabaseMatches.length >= limit;
     if (hasSufficientStoredCoverage && hasUsableStoredPrice(rankedDatabaseMatches)) {
-      return { products: dedupeKeepingOptions(rankedDatabaseMatches), source: "database", message: "가격 추적 목록에서 찾은 결과입니다." };
+      return { products: dedupedDatabaseMatches, source: "database", message: "가격 추적 목록에서 찾은 결과입니다." };
     }
     // 저장 결과가 요청 개수(limit)에 못 미치면 공식 API로 즉시 보완한다. API가 결과를
     // 주지 않을 때는 이미 저장된 관련 상품을 fallback으로 유지하고, API가 결과를 주면
     // 아래에서 이 DB 결과 뒤에 이어붙여(교체 아님) "DB + 쿠팡" 합본으로 보여준다.
     databaseFallback = rankedDatabaseMatches.length > 0 && hasUsableStoredPrice(rankedDatabaseMatches)
-      ? dedupeKeepingOptions(rankedDatabaseMatches)
+      ? dedupedDatabaseMatches
       : [];
   }
 
