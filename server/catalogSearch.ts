@@ -6,7 +6,7 @@ import type { CoupangApiCallType } from "./coupangRateLimit";
 import { buildSearchKeywordVariants, filterStableDeliveryResults, hasFullKeywordMatch, rankSearchResults, stripOptionTokensFromKeyword } from "./searchRelevance";
 import { notifySearchQuotaExceeded } from "./searchQuotaAlert";
 import { isExcludedTrackingCategory } from "./categoryEligibility";
-import { describeProductVariant, getProductFamilyKey, resolveStoredProductGroupKey } from "./productVariant";
+import { describeProductVariant, getProductFamilyKey, resolveStoredProductGroupKey, UNGROUPED_KEY_PREFIX } from "./productVariant";
 import { selectCheapestPerProductGroup } from "./productDedupe";
 
 export type CatalogSearchResult = {
@@ -112,6 +112,64 @@ function toEphemeralSearchProduct(keyword: string, item: CoupangProduct): Epheme
     inStock: true,
     pendingMaterialize: { keyword, productId: item.productId, productUrl: item.productUrl },
   };
+}
+
+/**
+ * 같은 쿠팡 productId(= 같은 상품)이지만 다른 vendorItemId(= 다른 옵션)인 항목이
+ * quantity 정보 없이 동일 상품군 키로 묶이면, selectCheapestPerProductGroup이
+ * 비싼 쪽을 삭제하는 버그를 방지합니다.
+ *
+ * 예: "비타라온 35ml" 1개(15,000원)와 2개(27,000원)가 API에서 둘 다 quantity=null로
+ * 돌아오면 같은 그룹키를 갖게 되어 15,000원짜리만 남는 문제.
+ *
+ * 같은 productId + 다른 externalProductId + quantity null → 서로 다른 옵션으로
+ * 간주하여 familyVariantKey를 ungrouped(sku:…)로 바꿔 dedup에서 살린다.
+ * 서로 다른 productId(= 다른 판매자)가 같은 그룹키를 갖는 경우는 기존 최저가
+ * 선택 로직이 정상 작동하므로 건드리지 않는다.
+ */
+function preserveDifferentProductOptions<
+  T extends { externalProductId: string; familyVariantKey: string | null; quantity: number | null },
+>(items: T[]): T[] {
+  // externalProductId 형식: "productId:itemId:vendorItemId"
+  const extractProductId = (epid: string) => epid.split(":")[0];
+
+  // 1) 같은 그룹키를 공유하는 항목들을 모은다 (ungrouped 키 제외)
+  const byGroupKey = new Map<string, T[]>();
+  for (const item of items) {
+    const gk = item.familyVariantKey;
+    if (!gk || gk.startsWith(UNGROUPED_KEY_PREFIX)) continue;
+    const arr = byGroupKey.get(gk);
+    if (arr) arr.push(item);
+    else byGroupKey.set(gk, [item]);
+  }
+
+  // 2) 같은 그룹키 안에서 같은 productId이지만 다른 externalProductId인 항목이 있으면
+  //    quantity가 null인 항목의 키를 ungrouped로 전환
+  for (const [, group] of byGroupKey) {
+    if (group.length < 2) continue;
+
+    // productId별로 externalProductId 목록을 모은다
+    const byProductId = new Map<string, T[]>();
+    for (const item of group) {
+      const pid = extractProductId(item.externalProductId);
+      const arr = byProductId.get(pid);
+      if (arr) arr.push(item);
+      else byProductId.set(pid, [item]);
+    }
+
+    for (const [, sameProduct] of byProductId) {
+      if (sameProduct.length < 2) continue;
+      // 같은 productId에서 2개 이상 → 서로 다른 옵션 (vendorItemId가 다름)
+      // quantity가 null인 항목들의 키를 ungrouped로 바꿔 dedup 회피
+      for (const item of sameProduct) {
+        if (item.quantity === null) {
+          item.familyVariantKey = `${UNGROUPED_KEY_PREFIX}${item.externalProductId}`;
+        }
+      }
+    }
+  }
+
+  return items;
 }
 
 /**
@@ -301,10 +359,14 @@ export async function searchCatalogSafely(keyword: string, limit = 10, options: 
       // 우선하고 임시(ephemeral) 중복은 제거한다.
       const alreadyInDatabase = new Set(databaseFallback.map(product => product.externalProductId));
       const newFromApi = ephemeral.filter(item => !alreadyInDatabase.has(item.externalProductId));
+      // 같은 productId의 다른 옵션(vendorItemId)이 quantity null 때문에 같은
+      // 그룹키로 묶여 하나만 남는 것을 방지한다 (예: 35ml 1개 vs 2개).
+      const combined = [...databaseFallback, ...newFromApi];
+      preserveDifferentProductOptions(combined);
       // 같은 상품이 용량은 같고 수량(묶음 개수)만 다른 카드로 여러 개 나오는 걸 막기
       // 위해, 실제로 저장하기 전인 이 단계에서도 상품군당 하나만 남긴다. DB 결과를
       // 먼저 두므로 동률(같은 상품군·같은 단위)이면 실제 id가 있는 DB 항목이 남는다.
-      const dedupedCombined = selectCheapestPerProductGroup([...databaseFallback, ...newFromApi]).slice(0, limit);
+      const dedupedCombined = selectCheapestPerProductGroup(combined).slice(0, limit);
       if (dedupedCombined.length === 0 && callType === "product-search") await db.recordMissingSearch(keyword);
       return {
         products: dedupedCombined,
@@ -340,6 +402,8 @@ export async function searchCatalogSafely(keyword: string, limit = 10, options: 
     const alreadyRanked = new Set(ranked.map(product => product.externalProductId));
     const additionalFromDatabase = databaseFallback.filter(product => !alreadyRanked.has(product.externalProductId));
     ranked = [...additionalFromDatabase, ...ranked];
+    // 같은 productId의 다른 옵션이 quantity null로 같은 그룹키가 된 경우 보호
+    preserveDifferentProductOptions(ranked);
     // 같은 상품이 용량은 같고 수량(묶음 개수)만 다른 카드로 여러 개 나오는 걸
     // 막기 위해, 상품군당 "수량 1개당 가격"이 가장 저렴한 하나만 남긴다.
     ranked = selectCheapestPerProductGroup(ranked).slice(0, limit);
