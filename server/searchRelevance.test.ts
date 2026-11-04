@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildSearchKeywordVariants, filterStableDeliveryResults, hasFullKeywordMatch, rankSearchResults } from "./searchRelevance";
+import { buildSearchKeywordVariants, filterStableDeliveryResults, getSearchTokens, hasFullKeywordMatch, rankSearchResults, stripOptionTokensFromKeyword } from "./searchRelevance";
 
 describe("rankSearchResults", () => {
   it("puts keyword-matching products ahead of unrelated API results while preserving original order on ties", () => {
@@ -278,5 +278,32 @@ describe("용량 표기를 뺀 대체 검색어 (2026-11-04)", () => {
       { name: "비타라온 앰플 35ml", currentPrice: 25000, isRocket: true },
     ]);
     expect(ranked.map(item => item.name)).toEqual(["비타라온 앰플 35ml", "비타라온 앰플 50ml"]);
+  });
+});
+
+describe("개입·매입 같은 수량 단위 표기 (2026-11-04 '좋은느낌 슈퍼롱 66개입')", () => {
+  it("66개입을 핵심 토큰이 아니라 옵션 표기로 본다", () => {
+    expect(getSearchTokens("좋은느낌 슈퍼롱 66개입")).toEqual(["좋은느낌", "슈퍼롱"]);
+  });
+
+  it("수량 표기를 뺀 대체 검색어를 만든다", () => {
+    expect(stripOptionTokensFromKeyword("좋은느낌 슈퍼롱 66개입")).toBe("좋은느낌 슈퍼롱");
+    expect(buildSearchKeywordVariants("좋은느낌 슈퍼롱 66개입")).toContain("좋은느낌 슈퍼롱");
+  });
+
+  it("브랜드·제품명이 맞는 결과는 남기고 수량이 맞는 상품을 앞에 둔다", () => {
+    const ranked = rankSearchResults("좋은느낌 슈퍼롱 66개입", [
+      { name: "좋은느낌 슈퍼롱 슬림 날개 생리대, 40개입" },
+      { name: "좋은느낌 슈퍼롱 슬림 날개 생리대, 66개입" },
+    ]);
+    expect(ranked.map(item => item.name)).toEqual([
+      "좋은느낌 슈퍼롱 슬림 날개 생리대, 66개입",
+      "좋은느낌 슈퍼롱 슬림 날개 생리대, 40개입",
+    ]);
+  });
+
+  it("순수 숫자·기존 단위 처리는 그대로다", () => {
+    expect(stripOptionTokensFromKeyword("비타라온 35ml")).toBe("비타라온");
+    expect(stripOptionTokensFromKeyword("비타라온")).toBeNull();
   });
 });

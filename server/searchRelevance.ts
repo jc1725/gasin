@@ -18,8 +18,11 @@ function normalize(value?: string) {
     .replace(/[^0-9a-z가-힣]+/g, "");
 }
 
+// 2026-11-04: "좋은느낌 슈퍼롱 66개입"의 "66개입"이 용량·수량 표기로 인식되지 않아 핵심 토큰이
+// 되고, 쿠팡 API가 결과를 비워도 용량 제거 대체 검색어가 만들어지지 않았다.
+// 개입·매입·매·병·캔·봉·박스·포·알·환 같은 수량 단위도 옵션 표기로 본다.
 function isOptionOnlyToken(token: string) {
-  return /^(?:\d+(?:ml|g|kg|l|개|정|입|세트|팩|롤|장|gb|tb|kpa)|\d+|\d+년형|냉동)$/i.test(token);
+  return /^(?:\d+(?:ml|g|kg|l|개입|매입|개|정|입|세트|팩|롤|장|매|병|캔|봉|박스|포|알|환|gb|tb|kpa)|\d+|\d+년형|냉동)$/i.test(token);
 }
 
 const SEARCH_TOKEN_EQUIVALENTS: Record<string, string[]> = {
