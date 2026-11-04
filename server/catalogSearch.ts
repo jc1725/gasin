@@ -145,8 +145,8 @@ function preserveDifferentProductOptions<
 
   // 2) 같은 그룹키 안에서 같은 productId이지만 다른 externalProductId인 항목이 있으면
   //    quantity가 null인 항목의 키를 ungrouped로 전환
-  for (const [, group] of byGroupKey) {
-    if (group.length < 2) continue;
+  byGroupKey.forEach((group) => {
+    if (group.length < 2) return;
 
     // productId별로 externalProductId 목록을 모은다
     const byProductId = new Map<string, T[]>();
@@ -157,8 +157,8 @@ function preserveDifferentProductOptions<
       else byProductId.set(pid, [item]);
     }
 
-    for (const [, sameProduct] of byProductId) {
-      if (sameProduct.length < 2) continue;
+    byProductId.forEach((sameProduct) => {
+      if (sameProduct.length < 2) return;
       // 같은 productId에서 2개 이상 → 서로 다른 옵션 (vendorItemId가 다름)
       // quantity가 null인 항목들의 키를 ungrouped로 바꿔 dedup 회피
       for (const item of sameProduct) {
@@ -166,8 +166,8 @@ function preserveDifferentProductOptions<
           item.familyVariantKey = `${UNGROUPED_KEY_PREFIX}${item.externalProductId}`;
         }
       }
-    }
-  }
+    });
+  });
 
   return items;
 }
