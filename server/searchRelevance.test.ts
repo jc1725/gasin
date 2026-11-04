@@ -307,3 +307,29 @@ describe("개입·매입 같은 수량 단위 표기 (2026-11-04 '좋은느낌 �
     expect(stripOptionTokensFromKeyword("비타라온")).toBeNull();
   });
 });
+
+describe("옵션(variantLabel·packSize)에만 있는 검색어 (2026-11-04 '슈퍼롱 포장 66개입')", () => {
+  const six = { name: "좋은느낌 유기농 순면 팬티라이너", variantLabel: "슈퍼롱 6세트", packSize: "66개입", quantity: 6, isRocket: true };
+  const one = { name: "좋은느낌 유기농 순면 팬티라이너", variantLabel: "슈퍼롱 1세트", packSize: "66개입", quantity: 1, isRocket: true };
+  const other40 = { name: "좋은느낌 유기농 순면 팬티라이너", variantLabel: "슈퍼롱 1세트", packSize: "40개입", quantity: 1, isRocket: true };
+  const night = { name: "좋은느낌 입는 오버나이트", isRocket: true };
+
+  it("상품명에 없는 슈퍼롱이 옵션 라벨에 있으면 관련 상품으로 본다", () => {
+    const ranked = rankSearchResults("좋은느낌 슈퍼롱 66개입", [night, six, one]);
+    expect(ranked).toEqual([six, one]);
+  });
+
+  it("포장 정보(packSize)가 맞는 옵션을 앞에 둔다", () => {
+    const ranked = rankSearchResults("좋은느낌 슈퍼롱 66개입", [other40, one]);
+    expect(ranked[0]).toBe(one);
+  });
+
+  it("검색어 전체가 상품명+옵션에 있으면 완전 일치로 본다", () => {
+    expect(hasFullKeywordMatch("좋은느낌 슈퍼롱 66개입", [one])).toBe(true);
+    expect(hasFullKeywordMatch("좋은느낌 슈퍼롱 66개입", [night])).toBe(false);
+  });
+
+  it("옵션 정보가 없는 상품은 기존처럼 상품명만으로 판정한다", () => {
+    expect(rankSearchResults("좋은느낌 슈퍼롱", [night])).toEqual([]);
+  });
+});

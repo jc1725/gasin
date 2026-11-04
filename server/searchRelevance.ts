@@ -4,12 +4,25 @@ export type SearchableProduct = {
   externalProductId?: string;
   variantLabel?: string | null;
   unitLabel?: string | null;
+  packSize?: string | null;
   quantity?: number | null;
   currentPrice?: number;
   price?: number;
   isRocket?: boolean;
   isFreeShipping?: boolean;
 };
+
+/**
+ * 2026-11-04: "좋은느낌 슈퍼롱 66개입"처럼 검색어의 일부("슈퍼롱", "66개입")가 상품명이 아니라
+ * 저장된 옵션(variantLabel·unitLabel·packSize)에만 있는 상품이 있다 — 상품명은
+ * "좋은느낌 유기농 순면 팬티라이너"이고 옵션이 "슈퍼롱 1세트 / 포장 66개입"인 경우다.
+ * 상품명만 보면 DB가 후보로 찾아도 관련도 필터가 전부 걸러내므로, 옵션 값까지 합쳐서 판정한다.
+ */
+function getProductSearchText(product: SearchableProduct) {
+  return normalize([product.name ?? product.productName, product.variantLabel, product.unitLabel, product.packSize]
+    .filter(Boolean)
+    .join(" "));
+}
 
 function normalize(value?: string) {
   return (value ?? "")
@@ -137,6 +150,7 @@ function matchesOptionToken(token: string, product: SearchableProduct, normalize
     normalizedName,
     normalize(product.variantLabel ?? undefined),
     normalize(product.unitLabel ?? undefined),
+    normalize(product.packSize ?? undefined),
     product.quantity && product.quantity > 0 ? `${product.quantity}개` : "",
   ].filter(Boolean).join(" ");
   return extractOptionMeasures(haystack).some(measure =>
@@ -294,7 +308,7 @@ export function hasFullKeywordMatch<T extends SearchableProduct>(keyword: string
   const tokens = getSearchTokens(keyword);
   if (tokens.length === 0) return false;
   return products.some(product => {
-    const name = normalize(product.name ?? product.productName);
+    const name = getProductSearchText(product);
     return tokens.every(token => getSearchTokenVariants(token).some(variant => name.includes(variant)));
   });
 }
@@ -322,7 +336,7 @@ export function rankSearchResults<T extends SearchableProduct>(keyword: string, 
   const optionTokens = getSearchOptionTokens(keyword);
   const requiredMatches = tokens.length <= 2 ? tokens.length : Math.max(2, Math.ceil(tokens.length * 0.6));
   const scored = products.map((product, index) => {
-    const name = normalize(product.name ?? product.productName);
+    const name = getProductSearchText(product);
     const fullMatch = Boolean(query) && name.includes(query);
     const tokenMatches = tokens.filter(token => matchesSearchToken(token, name)).length;
     const firstTokenMatches = tokens.length > 0 && matchesSearchToken(tokens[0]!, name);
@@ -353,7 +367,7 @@ export function rankSearchResults<T extends SearchableProduct>(keyword: string, 
   const relaxedMatches = scored
     .filter(item => {
       const brandMatches = brandToken
-        ? matchesSearchToken(brandToken, normalize(item.product.name ?? item.product.productName))
+        ? matchesSearchToken(brandToken, getProductSearchText(item.product))
         : true;
       return item.tokenMatches >= relaxedRequiredMatches && brandMatches;
     })
