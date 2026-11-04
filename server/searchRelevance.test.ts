@@ -261,3 +261,22 @@ describe("브랜드 접미사·영문 약어 표기 차이 (2026-10-28)", () => 
     expect(buildSearchKeywordVariants("종근당건강 RTG 오메가3")).toContain("종근당 알티지 오메가3");
   });
 });
+
+describe("용량 표기를 뺀 대체 검색어 (2026-11-04)", () => {
+  it("'비타라온 35ml'은 용량을 뺀 '비타라온'을 대체 검색어로 제안한다", () => {
+    expect(buildSearchKeywordVariants("비타라온 35ml")).toEqual(["비타라온 35ml", "비타라온"]);
+  });
+
+  it("용량만 있는 검색어나 용량이 없는 검색어에는 빈/중복 대체 검색어를 만들지 않는다", () => {
+    expect(buildSearchKeywordVariants("35ml")).toEqual(["35ml"]);
+    expect(buildSearchKeywordVariants("비타라온")).toEqual(["비타라온"]);
+  });
+
+  it("용량 토큰을 뺀 응답이라도 원래 검색어의 용량이 맞는 상품을 앞에 둔다", () => {
+    const ranked = rankSearchResults("비타라온 35ml", [
+      { name: "비타라온 앰플 50ml", currentPrice: 30000, isRocket: true },
+      { name: "비타라온 앰플 35ml", currentPrice: 25000, isRocket: true },
+    ]);
+    expect(ranked.map(item => item.name)).toEqual(["비타라온 앰플 35ml", "비타라온 앰플 50ml"]);
+  });
+});

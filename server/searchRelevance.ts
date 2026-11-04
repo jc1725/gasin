@@ -171,6 +171,15 @@ export function buildSearchKeywordVariants(keyword: string) {
     })
     .join(" ");
   if (canonical !== trimmed) variants.push(canonical);
+  // 2026-11-04: "비타라온 35ml"처럼 용량·수량 표기가 붙은 검색어는 쿠팡 API가 결과를 비워 주는
+  // 경우가 있다(상품명에는 용량이 다른 형태로 적혀 있거나 아예 없을 때). 용량 토큰을 뺀
+  // 검색어를 대체 검색어로 두고, 용량 일치 여부는 결과 정렬(optionTokens)에서 따로 반영한다.
+  const withoutOptions = canonical
+    .split(" ")
+    .filter(word => !isOptionOnlyToken(normalize(word)))
+    .join(" ")
+    .trim();
+  if (withoutOptions.length >= 2 && withoutOptions !== trimmed) variants.push(withoutOptions);
   if (trimmed.includes("헤드앤숄더") && trimmed.includes("샴푸")) {
     const coolingToken = trimmed.includes("멘솔") || trimmed.includes("멘톨") ? " 쿨 멘솔" : "";
     variants.push(`헤드앤숄더 샴푸${coolingToken}`);

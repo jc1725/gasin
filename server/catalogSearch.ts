@@ -241,11 +241,15 @@ export async function searchCatalogSafely(keyword: string, limit = 10, options: 
     // 사용자 검색에서만, 1차 결과가 없거나 무관할 때 검색어 표기 변형을 한 번 보완합니다.
     // 가격 추적 작업은 상위 호출부의 SKU matcher가 호출 횟수를 통제합니다.
     if (relevantResults.length === 0 && callType === "product-search") {
-      const fallbackKeyword = buildSearchKeywordVariants(keyword).find(variant => variant !== keyword.trim());
-      if (fallbackKeyword) {
+      // 대체 검색어는 최대 2개까지만 시도한다(사용자 검색 호출 예산 보호). 정렬·관련도 판정은
+      // 대체 검색어가 아니라 사용자가 입력한 원래 검색어 기준으로 한다 — 용량을 뺀 대체
+      // 검색어로 받은 결과도 원래 검색어의 용량 일치 여부를 정렬에 반영해야 하기 때문이다.
+      const fallbackKeywords = buildSearchKeywordVariants(keyword).filter(variant => variant !== keyword.trim()).slice(0, 2);
+      for (const fallbackKeyword of fallbackKeywords) {
         searchKeyword = fallbackKeyword;
         results = await searchCoupangProducts(searchKeyword, limit, callType);
-        relevantResults = removeExcludedTrackingProducts(filterStableDeliveryResults(rankSearchResults(searchKeyword, results), searchKeyword));
+        relevantResults = removeExcludedTrackingProducts(filterStableDeliveryResults(rankSearchResults(keyword, results), keyword));
+        if (relevantResults.length > 0) break;
       }
     }
     const shouldProtectTrackedExactMatch = callType === "product-search" && options.forceExternal === true;
