@@ -8,7 +8,6 @@ import { notifySearchQuotaExceeded } from "./searchQuotaAlert";
 import { isExcludedTrackingCategory } from "./categoryEligibility";
 import { describeProductVariant, getProductFamilyKey, resolveStoredProductGroupKey, UNGROUPED_KEY_PREFIX } from "./productVariant";
 import { selectCheapestPerProductGroup } from "./productDedupe";
-import { buildSiblingSearchKeyword, extractCoupangProductId, hasProductInResults, selectSiblingOptions } from "./siblingOptionSearch";
 
 export type CatalogSearchResult = {
   products: Awaited<ReturnType<typeof db.listProducts>>;
@@ -173,11 +172,6 @@ function preserveDifferentProductOptions<
   return items;
 }
 
-/** 실제 쿠팡 SKU가 아닌 내부 대체 키(url- 해시 등)는 형제 옵션 검색의 기준으로 쓰지 않는다. */
-function isUngroupedSkuPlaceholder(externalProductId: string) {
-  return !/^\d+:\d+:\d+$/.test(externalProductId);
-}
-
 /** 모든 검색 경로(캐시·DB·API)에서 쓰는 dedup — 같은 상품의 다른 옵션은 보존한 뒤 상품군당 최저가만 남긴다. */
 function dedupeKeepingOptions<
   T extends { externalProductId: string; familyVariantKey: string | null; quantity: number | null; currentPrice: number },
@@ -331,29 +325,6 @@ export async function searchCatalogSafely(keyword: string, limit = 10, options: 
         results = await searchCoupangProducts(searchKeyword, limit, callType);
         relevantResults = removeExcludedTrackingProducts(filterStableDeliveryResults(rankSearchResults(keyword, results), keyword));
         if (relevantResults.length > 0) break;
-      }
-    }
-    // 2026-11-04: 파트너스 API 검색이 DB에 이미 추적 중인 상품(또는 그 다른 옵션)을 아예 주지
-    // 않는 경우(예: 비타라온 35ml 1개/2개)를 보완한다. 저장된 상품의 이름으로 한 번 더
-    // 검색해 "같은 productId"의 다른 옵션만 받아온다. 원본 응답 캐시를 재사용하는 재검색,
-    // 가격 추적 호출에서는 하지 않고, 실패해도 기존 검색 흐름은 그대로 진행한다.
-    if (callType === "product-search" && !cachedRaw && databaseFallback.length > 0) {
-      const trackedProduct = databaseFallback.find(product => !isUngroupedSkuPlaceholder(product.externalProductId));
-      const trackedProductId = trackedProduct ? extractCoupangProductId(trackedProduct.externalProductId) : "";
-      const known = [...results, ...relevantResults];
-      if (trackedProduct && trackedProductId && !hasProductInResults(trackedProductId, known)) {
-        try {
-          const siblingKeyword = buildSiblingSearchKeyword(trackedProduct.name);
-          if (siblingKeyword) {
-            const siblingCandidates = await searchCoupangProducts(siblingKeyword, limit, callType);
-            const siblings = selectSiblingOptions(siblingCandidates, trackedProductId, known);
-            console.log(`[search-debug] sibling-search keyword="${siblingKeyword}" productId=${trackedProductId} candidates=${siblingCandidates.length} siblings=${JSON.stringify(siblings.map(s => ({ pid: s.productId, name: s.productName, price: s.productPrice })))}`);
-            if (siblings.length > 0) relevantResults = [...relevantResults, ...siblings];
-          }
-        } catch (error) {
-          // 한도 초과·API 오류가 나도 일반 검색 결과(DB 포함)는 그대로 보여준다.
-          console.warn("[search] sibling option search skipped:", error instanceof Error ? error.message : error);
-        }
       }
     }
     const shouldProtectTrackedExactMatch = callType === "product-search" && options.forceExternal === true;
