@@ -155,6 +155,21 @@ export function getSearchTokenVariants(token: string) {
  * 상품명 찾기에 필요한 핵심 토큰만 남긴다. 용량·수량·묶음·괄호 표기는 옵션 확인에는 유용하지만,
  * 쿠팡 API 결과의 상품명에 없을 수 있으므로 관련도 필수 조건에서 제외한다.
  */
+/**
+ * 2026-11-04: "비타라온 35ml"처럼 용량·수량 표기가 붙은 검색어는 쿠팡 API가 결과를 비우는
+ * 경우가 있다(상품명에는 용량이 다른 형태로 적혀 있거나 아예 없을 때). 용량·수량 토큰을
+ * 뺀 검색어를 돌려준다. 뺄 것이 없거나 핵심 토큰이 남지 않으면 null.
+ */
+export function stripOptionTokensFromKeyword(keyword: string) {
+  const trimmed = keyword.trim().replace(/\s+/g, " ");
+  const stripped = trimmed
+    .split(" ")
+    .filter(word => !isOptionOnlyToken(normalize(word)))
+    .join(" ")
+    .trim();
+  return stripped.length >= 2 && stripped !== trimmed ? stripped : null;
+}
+
 export function buildSearchKeywordVariants(keyword: string) {
   const trimmed = keyword.trim().replace(/\s+/g, " ");
   if (!trimmed) return [];
@@ -171,15 +186,6 @@ export function buildSearchKeywordVariants(keyword: string) {
     })
     .join(" ");
   if (canonical !== trimmed) variants.push(canonical);
-  // 2026-11-04: "비타라온 35ml"처럼 용량·수량 표기가 붙은 검색어는 쿠팡 API가 결과를 비워 주는
-  // 경우가 있다(상품명에는 용량이 다른 형태로 적혀 있거나 아예 없을 때). 용량 토큰을 뺀
-  // 검색어를 대체 검색어로 두고, 용량 일치 여부는 결과 정렬(optionTokens)에서 따로 반영한다.
-  const withoutOptions = canonical
-    .split(" ")
-    .filter(word => !isOptionOnlyToken(normalize(word)))
-    .join(" ")
-    .trim();
-  if (withoutOptions.length >= 2 && withoutOptions !== trimmed) variants.push(withoutOptions);
   if (trimmed.includes("헤드앤숄더") && trimmed.includes("샴푸")) {
     const coolingToken = trimmed.includes("멘솔") || trimmed.includes("멘톨") ? " 쿨 멘솔" : "";
     variants.push(`헤드앤숄더 샴푸${coolingToken}`);
@@ -195,7 +201,10 @@ export function buildSearchKeywordVariants(keyword: string) {
     // 쿠팡 상품명이 ‘수분 크림’/‘수분크림’처럼 붙어 있는 경우를 보완합니다.
     variants.push(`${tokens[0]} ${tokens.slice(1).join("")}`);
   }
-  return Array.from(new Set(variants)).slice(0, 3);
+  // 철자 변형은 최대 3개(원문 포함)까지, 용량 제거 검색어는 별도로 맨 뒤에 덧붙인다.
+  const spellingVariants = Array.from(new Set(variants)).slice(0, 3);
+  const withoutOptions = stripOptionTokensFromKeyword(trimmed);
+  return withoutOptions && !spellingVariants.includes(withoutOptions) ? [...spellingVariants, withoutOptions] : spellingVariants;
 }
 
 export function getSearchTokens(keyword: string) {

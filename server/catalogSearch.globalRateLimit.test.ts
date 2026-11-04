@@ -136,6 +136,19 @@ describe("searchCatalogSafely global rate protection", () => {
     expect(mocks.searchCoupangProducts).toHaveBeenNthCalledWith(2, "비플레인 폼클렌저 80ml", 10, "product-search");
   });
 
+  it("retries without the volume token when the official API returns nothing for '비타라온 35ml' (2026-11-04)", async () => {
+    mocks.searchCoupangProducts
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ productId: 3, productName: "비타라온 앰플 35ml", productPrice: 25000, productImage: "https://image.test/vitaraon.jpg", productUrl: "https://www.coupang.com/vp/products/3" }]);
+    mocks.upsertCoupangProducts.mockResolvedValue([{ id: 301, name: "비타라온 앰플 35ml", currentPrice: 25000, affiliateUrl: "" }]);
+    mocks.cacheSearchProducts.mockResolvedValue(undefined);
+
+    await expect(searchCatalogSafely("비타라온 35ml")).resolves.toMatchObject({ source: "coupang", products: [{ id: 301 }] });
+    expect(mocks.searchCoupangProducts).toHaveBeenNthCalledWith(1, "비타라온 35ml", 10, "product-search");
+    expect(mocks.searchCoupangProducts).toHaveBeenNthCalledWith(2, "비타라온", 10, "product-search");
+    expect(mocks.searchCoupangProducts).toHaveBeenCalledTimes(2);
+  });
+
   it("does not store or cache unrelated default products returned by the official API", async () => {
     mocks.searchCoupangProducts.mockResolvedValue([
       { productId: 1, productName: "코카콜라 오리지널 300ml" },

@@ -3,7 +3,7 @@ import { getCoupangVariantKey, searchCoupangProducts } from "./coupang";
 import type { CoupangProduct } from "./coupang";
 import { CoupangRateLimitError } from "./coupangRateLimit";
 import type { CoupangApiCallType } from "./coupangRateLimit";
-import { buildSearchKeywordVariants, filterStableDeliveryResults, hasFullKeywordMatch, rankSearchResults } from "./searchRelevance";
+import { buildSearchKeywordVariants, filterStableDeliveryResults, hasFullKeywordMatch, rankSearchResults, stripOptionTokensFromKeyword } from "./searchRelevance";
 import { notifySearchQuotaExceeded } from "./searchQuotaAlert";
 import { isExcludedTrackingCategory } from "./categoryEligibility";
 import { describeProductVariant, getProductFamilyKey, resolveStoredProductGroupKey } from "./productVariant";
@@ -244,7 +244,12 @@ export async function searchCatalogSafely(keyword: string, limit = 10, options: 
       // 대체 검색어는 최대 2개까지만 시도한다(사용자 검색 호출 예산 보호). 정렬·관련도 판정은
       // 대체 검색어가 아니라 사용자가 입력한 원래 검색어 기준으로 한다 — 용량을 뺀 대체
       // 검색어로 받은 결과도 원래 검색어의 용량 일치 여부를 정렬에 반영해야 하기 때문이다.
-      const fallbackKeywords = buildSearchKeywordVariants(keyword).filter(variant => variant !== keyword.trim()).slice(0, 2);
+      // 순서: 철자 변형 1개 → 용량 제거 검색어(둘이 같으면 한 번만).
+      const original = keyword.trim().replace(/\s+/g, " ");
+      const fallbackKeywords = Array.from(new Set([
+        buildSearchKeywordVariants(keyword).find(variant => variant !== original),
+        stripOptionTokensFromKeyword(keyword) ?? undefined,
+      ].filter((variant): variant is string => Boolean(variant) && variant !== original)));
       for (const fallbackKeyword of fallbackKeywords) {
         searchKeyword = fallbackKeyword;
         results = await searchCoupangProducts(searchKeyword, limit, callType);
