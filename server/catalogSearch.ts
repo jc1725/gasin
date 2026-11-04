@@ -172,6 +172,13 @@ function preserveDifferentProductOptions<
   return items;
 }
 
+/** 모든 검색 경로(캐시·DB·API)에서 쓰는 dedup — 같은 상품의 다른 옵션은 보존한 뒤 상품군당 최저가만 남긴다. */
+function dedupeKeepingOptions<
+  T extends { externalProductId: string; familyVariantKey: string | null; quantity: number | null; currentPrice: number },
+>(items: T[]): T[] {
+  return selectCheapestPerProductGroup(preserveDifferentProductOptions(items));
+}
+
 /**
  * 검색 결과 카드를 실제로 열거나 찜할 때만 호출됩니다. 클라이언트가 보낸
  * productId·productUrl은 신뢰하지 않고, 그 검색어로 서버가 직접 캐시해둔 원본
@@ -244,7 +251,7 @@ export async function searchCatalogSafely(keyword: string, limit = 10, options: 
       const rankedCached = removeExcludedTrackingProducts(filterStableDeliveryResults(rankSearchResults(keyword, cached), keyword));
       const cacheIsUsable = rankedCached.length > 0 && hasUsableStoredPrice(rankedCached);
       if (cacheIsUsable && hasFullKeywordMatch(keyword, rankedCached)) {
-        return { products: selectCheapestPerProductGroup(rankedCached), source: "cache", message: "검색어와 일치하는 저장 결과를 표시합니다." };
+        return { products: dedupeKeepingOptions(rankedCached), source: "cache", message: "검색어와 일치하는 저장 결과를 표시합니다." };
       }
       if (cacheIsUsable) {
         // 캐시에 결과가 있어도 검색어 핵심 토큰과 완전히 일치하는 상품이 그 안에
@@ -256,12 +263,12 @@ export async function searchCatalogSafely(keyword: string, limit = 10, options: 
         // 있는지 한 번 더 확인하고, 있다면 그 결과로 캐시를 즉시 갱신한다.
         const freshMatches = removeExcludedTrackingProducts(filterStableDeliveryResults(rankSearchResults(keyword, await db.searchTrackedProducts(keyword, limit)), keyword));
         if (hasFullKeywordMatch(keyword, freshMatches) && hasUsableStoredPrice(freshMatches)) {
-          const dedupedFreshMatches = selectCheapestPerProductGroup(freshMatches);
+          const dedupedFreshMatches = dedupeKeepingOptions(freshMatches);
           await db.invalidateCachedSearchProducts(keyword);
           await db.cacheSearchProducts(keyword, dedupedFreshMatches.map(product => product.id));
           return { products: dedupedFreshMatches, source: "database", message: "가격 추적 목록에서 찾은 최신 결과로 캐시를 갱신했습니다." };
         }
-        return { products: selectCheapestPerProductGroup(rankedCached), source: "cache", message: "검색어와 일치하는 저장 결과를 표시합니다." };
+        return { products: dedupeKeepingOptions(rankedCached), source: "cache", message: "검색어와 일치하는 저장 결과를 표시합니다." };
       }
       // 가격 데이터가 없는 캐시와 무관한 이전 응답은 최신 가격을 확인할 수 없다.
       // 다음 허용된 검색에서 즉시 공식 API를 한 번 조회하도록 제거한다.
@@ -279,13 +286,13 @@ export async function searchCatalogSafely(keyword: string, limit = 10, options: 
     // 규칙) 그대로 막는다.
     const hasSufficientStoredCoverage = rankedDatabaseMatches.length >= limit;
     if (hasSufficientStoredCoverage && hasUsableStoredPrice(rankedDatabaseMatches)) {
-      return { products: selectCheapestPerProductGroup(rankedDatabaseMatches), source: "database", message: "가격 추적 목록에서 찾은 결과입니다." };
+      return { products: dedupeKeepingOptions(rankedDatabaseMatches), source: "database", message: "가격 추적 목록에서 찾은 결과입니다." };
     }
     // 저장 결과가 요청 개수(limit)에 못 미치면 공식 API로 즉시 보완한다. API가 결과를
     // 주지 않을 때는 이미 저장된 관련 상품을 fallback으로 유지하고, API가 결과를 주면
     // 아래에서 이 DB 결과 뒤에 이어붙여(교체 아님) "DB + 쿠팡" 합본으로 보여준다.
     databaseFallback = rankedDatabaseMatches.length > 0 && hasUsableStoredPrice(rankedDatabaseMatches)
-      ? selectCheapestPerProductGroup(rankedDatabaseMatches)
+      ? dedupeKeepingOptions(rankedDatabaseMatches)
       : [];
   }
 
@@ -364,11 +371,10 @@ export async function searchCatalogSafely(keyword: string, limit = 10, options: 
       // 같은 productId의 다른 옵션(vendorItemId)이 quantity null 때문에 같은
       // 그룹키로 묶여 하나만 남는 것을 방지한다 (예: 35ml 1개 vs 2개).
       const combined = [...databaseFallback, ...newFromApi];
-      preserveDifferentProductOptions(combined);
       // 같은 상품이 용량은 같고 수량(묶음 개수)만 다른 카드로 여러 개 나오는 걸 막기
       // 위해, 실제로 저장하기 전인 이 단계에서도 상품군당 하나만 남긴다. DB 결과를
       // 먼저 두므로 동률(같은 상품군·같은 단위)이면 실제 id가 있는 DB 항목이 남는다.
-      const dedupedCombined = selectCheapestPerProductGroup(combined).slice(0, limit);
+      const dedupedCombined = dedupeKeepingOptions(combined).slice(0, limit);
       if (dedupedCombined.length === 0 && callType === "product-search") await db.recordMissingSearch(keyword);
       return {
         products: dedupedCombined,
@@ -405,10 +411,9 @@ export async function searchCatalogSafely(keyword: string, limit = 10, options: 
     const additionalFromDatabase = databaseFallback.filter(product => !alreadyRanked.has(product.externalProductId));
     ranked = [...additionalFromDatabase, ...ranked];
     // 같은 productId의 다른 옵션이 quantity null로 같은 그룹키가 된 경우 보호
-    preserveDifferentProductOptions(ranked);
     // 같은 상품이 용량은 같고 수량(묶음 개수)만 다른 카드로 여러 개 나오는 걸
     // 막기 위해, 상품군당 "수량 1개당 가격"이 가장 저렴한 하나만 남긴다.
-    ranked = selectCheapestPerProductGroup(ranked).slice(0, limit);
+    ranked = dedupeKeepingOptions(ranked).slice(0, limit);
     await reuseAffiliateUrlsFromSearch(ranked);
     await db.cacheSearchProducts(keyword, ranked.map(product => product.id));
     if (ranked.length === 0 && callType === "product-search") await db.recordMissingSearch(keyword);
