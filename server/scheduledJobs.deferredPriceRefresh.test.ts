@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   startSyncRun: vi.fn(), finishSyncRun: vi.fn(), listAllTrackedProducts: vi.fn(), deferSearchProductRefresh: vi.fn(), getSearchApiQuotaStatus: vi.fn(), getDeferredSearchProducts: vi.fn(), recordDeferredSearchRecheckMiss: vi.fn(), recordDeferredSearchRecheckError: vi.fn(), recordPriceTrackingMetric: vi.fn(), markScheduleCompleted: vi.fn(), backfillProductGroupKeys: vi.fn(), searchCatalogSafely: vi.fn(), generatePendingDeepLinks: vi.fn(),
 }));
 
+vi.mock("./priceAlertService", () => ({ checkAndSendPriceAlerts: async () => ({ sent: 0 }) }));
 vi.mock("./db", () => ({ startSyncRun: mocks.startSyncRun, finishSyncRun: mocks.finishSyncRun, listAllTrackedProducts: mocks.listAllTrackedProducts, deferSearchProductRefresh: mocks.deferSearchProductRefresh, getSearchApiQuotaStatus: mocks.getSearchApiQuotaStatus, getDeferredSearchProducts: mocks.getDeferredSearchProducts, recordDeferredSearchRecheckMiss: mocks.recordDeferredSearchRecheckMiss, recordDeferredSearchRecheckError: mocks.recordDeferredSearchRecheckError, recordPriceTrackingMetric: mocks.recordPriceTrackingMetric, markScheduleCompleted: mocks.markScheduleCompleted, backfillProductGroupKeys: mocks.backfillProductGroupKeys }));
 vi.mock("./catalogSearch", () => ({ searchCatalogSafely: mocks.searchCatalogSafely }));
 vi.mock("./coupang", () => ({ COUPANG_BEST_CATEGORY_IDS: [], getBestCategoryProducts: vi.fn(), getCoupangVariantKey: vi.fn(), getGoldBoxProducts: vi.fn() }));

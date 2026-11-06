@@ -74,7 +74,7 @@ export default function Favorites() {
           const hasReachedTarget = targetPrice !== null && alertObservation?.isFresh === true && (alertObservation.price ?? Number.POSITIVE_INFINITY) <= targetPrice;
           // 2026-11-06: 이 줄은 수집기든 공식 API든 상관없이 "상품이 가장 최근에 확인된" 가격·시각을 보여준다
           // (위 카드 가격과 같은 값). 예전에는 알림 판정용 수집기 회원가만 보여줘서 카드 가격과 어긋났다.
-          // 알림 발송·도달 판정(alertObservation)은 그대로 수집기 와우 적용가만 쓴다.
+          // 알림 발송·도달 판정(alertObservation)도 2026-11-06부터 수집기·공식 API 구분 없이 최신 확인 가격을 쓴다.
           const latestSeenAt = product.lastSeenAt ? new Date(product.lastSeenAt) : null;
           const hasLatestSeen = latestSeenAt !== null && !Number.isNaN(latestSeenAt.getTime()) && product.currentPrice > 0;
           const observationMessage = alertObservation?.isFresh

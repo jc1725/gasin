@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   getGoldBoxProducts: vi.fn(),
 }));
 
+vi.mock("./priceAlertService", () => ({ checkAndSendPriceAlerts: async () => ({ sent: 0 }) }));
 vi.mock("./db", () => ({
   startSyncRun: mocks.startSyncRun,
   finishSyncRun: mocks.finishSyncRun,

@@ -3,7 +3,7 @@ import type { Express, Request, Response } from "express";
 import { z } from "zod";
 import { ENV } from "./_core/env";
 import * as db from "./db";
-import { checkAndSendExtensionPriceAlerts } from "./priceAlertService";
+import { checkAndSendPriceAlerts } from "./priceAlertService";
 import { generatePendingDeepLinksForProductIds } from "./deepLinks";
 import { logError, logInfo, logWarn } from "./_core/log";
 
@@ -132,7 +132,7 @@ export function registerCollectionRoutes(app: Express) {
       // 다시 보낸다. 두 값을 같은 방식으로 막는다.
       const alertProductIds = result.alertProductIds ?? [];
       try {
-        alerts = await checkAndSendExtensionPriceAlerts(alertProductIds);
+        alerts = await checkAndSendPriceAlerts(alertProductIds);
       } catch (alertError) {
         logError("collect_price_alert_evaluation_failed", "collector_extension", alertError, { alertProductCount: alertProductIds.length });
       }

@@ -45,7 +45,7 @@ import { getSearchTokenVariants, getSearchTokens, rankSearchResults } from "./se
 import { buildSearchSuggestions } from "./searchSuggestions";
 import { summarizeExternalCronQueue } from "./externalCronQueue";
 import { chooseTrackedPrice, hasWowMemberPrice } from "./wowMemberPrice";
-import { isFreshExtensionAlertObservation } from "./extensionAlertObservation";
+import { buildAlertObservationStatus, type AlertObservationStatus } from "./extensionAlertObservation";
 import { classifyMissingSearch } from "./searchFailureClassification";
 import { isExcludedTrackingCategory, getExcludedTrackingCategory, EXCLUDED_TRACKING_CATEGORY_LABEL } from "./categoryEligibility";
 import { buildCollectorProductMetadata, hasMissingCollectorMetadata } from "./collectorMetadata";
@@ -3243,65 +3243,28 @@ export async function get24hLowestPrice(productId: number, now = new Date()) {
   return row?.price ?? null;
 }
 
-export type ExtensionAlertObservationStatus = {
-  productId: number;
-  price: number | null;
-  observedAt: Date | null;
-  isFresh: boolean;
-};
-
-/** 알림 전용: 확장 프로그램이 수집한 와우 적용가만 사용하며 공식 API 이력은 절대 포함하지 않습니다. */
-export async function listExtensionAlertObservationStatuses(productIds: number[], now = new Date()): Promise<ExtensionAlertObservationStatus[]> {
+/**
+ * 2026-11-06: 알림 기준 가격 — 수집기 와우 적용가든 쿠팡 파트너스 공식 API 가격이든 가신이
+ * 가장 최근에 확인한 값(products.currentPrice, lastSeenAt)을 쓴다. 수집기 관측이 24시간 안에
+ * 있으면 products.currentPrice가 이미 와우 적용가이므로 별도로 합치지 않는다.
+ */
+export async function listAlertObservationStatuses(productIds: number[], now = new Date()): Promise<AlertObservationStatus[]> {
   const uniqueProductIds = Array.from(new Set(productIds.filter(id => Number.isSafeInteger(id) && id > 0)));
   if (uniqueProductIds.length === 0) return [];
   const db = await getDb();
   if (!db) return [];
-  const productRows = await db.select({ id: products.id, externalProductId: products.externalProductId }).from(products).where(inArray(products.id, uniqueProductIds));
-  if (productRows.length === 0) return [];
-  const observations = await db.select({ externalProductId: collectedPriceHistory.externalProductId, price: collectedPriceHistory.price, collectedAt: collectedPriceHistory.collectedAt })
-    .from(collectedPriceHistory)
-    .where(and(
-      inArray(collectedPriceHistory.externalProductId, productRows.map(product => product.externalProductId)),
-      eq(collectedPriceHistory.source, "gasyn-extension"),
-      eq(collectedPriceHistory.inStock, true),
-      isNotNull(collectedPriceHistory.price),
-    ))
-    .orderBy(desc(collectedPriceHistory.collectedAt), desc(collectedPriceHistory.id));
-  const latestBySku = new Map<string, typeof observations[number]>();
-  for (const observation of observations) if (!latestBySku.has(observation.externalProductId)) latestBySku.set(observation.externalProductId, observation);
-  return productRows.map(product => {
-    const observation = latestBySku.get(product.externalProductId);
-    const price = observation?.price ?? null;
-    const observedAt = observation?.collectedAt ?? null;
-    return { productId: product.id, price, observedAt, isFresh: isFreshExtensionAlertObservation(observedAt, now) };
-  });
+  const rows = await db
+    .select({ id: products.id, currentPrice: products.currentPrice, lastSeenAt: products.lastSeenAt, inStock: products.inStock })
+    .from(products)
+    .where(and(inArray(products.id, uniqueProductIds), eq(products.isActive, true)));
+  return rows.map(row => buildAlertObservationStatus(row, now));
 }
 
-export async function get24hLowestExtensionPrice(productId: number, now = new Date()) {
-  const db = await getDb();
-  if (!db) return null;
-  const product = (await db.select({ externalProductId: products.externalProductId }).from(products).where(eq(products.id, productId)).limit(1))[0];
-  if (!product) return null;
-  const since = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-  const row = (await db.select({ price: collectedPriceHistory.price })
-    .from(collectedPriceHistory)
-    .where(and(
-      eq(collectedPriceHistory.externalProductId, product.externalProductId),
-      eq(collectedPriceHistory.source, "gasyn-extension"),
-      eq(collectedPriceHistory.inStock, true),
-      isNotNull(collectedPriceHistory.price),
-      gte(collectedPriceHistory.collectedAt, since),
-    ))
-    .orderBy(asc(collectedPriceHistory.price), desc(collectedPriceHistory.collectedAt))
-    .limit(1))[0];
-  return row?.price ?? null;
-}
-
-export async function listFavoriteExtensionAlertObservationStatuses(userId: number, now = new Date()) {
+export async function listFavoriteAlertObservationStatuses(userId: number, now = new Date()) {
   const db = await getDb();
   if (!db) return [];
   const rows = await db.select({ productId: favorites.productId }).from(favorites).where(eq(favorites.userId, userId));
-  return listExtensionAlertObservationStatuses(rows.map(row => row.productId), now);
+  return listAlertObservationStatuses(rows.map(row => row.productId), now);
 }
 
 export type PriceAlertClaim = {

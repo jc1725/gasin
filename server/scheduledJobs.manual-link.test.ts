@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   searchCatalogSafely: vi.fn(),
 }));
 
+vi.mock("./priceAlertService", () => ({ checkAndSendPriceAlerts: async () => ({ sent: 0 }) }));
 vi.mock("./db", () => ({
   getNextWaitingManualLink: mocks.getNextWaitingManualLink,
   activateManualTracksForKnownProducts: mocks.activateManualTracksForKnownProducts,

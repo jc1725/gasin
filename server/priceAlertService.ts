@@ -49,21 +49,24 @@ export type PriceAlertSendSummary = {
 };
 
 /**
- * 최저가·목표가 알림은 확장 프로그램이 관측한 신선한 와우 회원 적용가만 기준으로 합니다.
- * 쿠팡 파트너스 공식 API 기본가는 표시용 데이터이며 이 함수의 알림 기준에 절대 포함되지 않습니다.
+ * 최저가·목표가 알림은 수집기든 쿠팡 파트너스 공식 API든 상관없이, 가신이 가장 최근에(7일 이내)
+ * 확인한 가격을 기준으로 판정합니다. (2026-11-06 정책 변경: 이전에는 수집기 와우 적용가만 사용)
+ * 같은 즐겨찾기·목표가 버전에는 중복 발송 방지 장치가 그대로 적용됩니다.
  */
-export async function checkAndSendExtensionPriceAlerts(productIds: number[], now = new Date()): Promise<PriceAlertSendSummary> {
+export async function checkAndSendPriceAlerts(productIds: number[], now = new Date()): Promise<PriceAlertSendSummary> {
   const summary: PriceAlertSendSummary = { eligibleProducts: 0, recipientCandidates: 0, sent: 0, skippedDuplicate: 0, failed: 0, pushSent: 0, pushExpired: 0, pushFailed: 0 };
-  const observations = await db.listExtensionAlertObservationStatuses(productIds, now);
+  const observations = await db.listAlertObservationStatuses(productIds, now);
 
   for (const observation of observations) {
     if (!observation.isFresh || observation.price === null || observation.observedAt === null) continue;
     const product = await db.getProductById(observation.productId);
     if (!product) continue;
 
-    const currentPrice = observation.price;
-    const lowestPrice24h = await db.get24hLowestExtensionPrice(product.id, now);
     const recipients = await db.listPriceAlertRecipients(product.id);
+    if (recipients.length === 0) continue;
+
+    const currentPrice = observation.price;
+    const lowestPrice24h = await db.get24hLowestPrice(product.id, now);
     const purchaseUrl = await buildGroupAwareAlertPurchaseUrl(product, currentPrice);
     const isLowest24h = is24hLowestPrice(currentPrice, lowestPrice24h);
     let hasEligibleRecipient = false;

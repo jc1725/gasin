@@ -23,6 +23,7 @@ const mocks = vi.hoisted(() => ({
   syncProductsToPersonalGoogleDrive: vi.fn(),
 }));
 
+vi.mock("./priceAlertService", () => ({ checkAndSendPriceAlerts: async () => ({ sent: 0 }) }));
 vi.mock("./db", () => ({
   startSyncRun: mocks.startSyncRun,
   finishSyncRun: mocks.finishSyncRun,

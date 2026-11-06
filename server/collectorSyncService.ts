@@ -1,5 +1,5 @@
 import * as db from "./db";
-import { checkAndSendExtensionPriceAlerts } from "./priceAlertService";
+import { checkAndSendPriceAlerts } from "./priceAlertService";
 
 let metadataSyncInFlight = false;
 let nameBackfillInFlight = false;
@@ -8,7 +8,7 @@ export async function syncCollectedPriceDataForAdmin() {
   const runId = await db.startSyncRun("collection");
   try {
     const result = await db.syncLatestCollectedPricesToTrackedProducts();
-    const alerts = await checkAndSendExtensionPriceAlerts(result.updatedProducts.map(product => product.id));
+    const alerts = await checkAndSendPriceAlerts(result.updatedProducts.map(product => product.id));
     const detail = `최신 관측 ${result.observedCount}개 · 반영 ${result.updatedCount}개 · 같은 가격 ${result.unchangedCount}개 · 이전 시각 ${result.staleCount}개 · 미연결 SKU ${result.unmatchedCount}개 · 잘못된 가격 ${result.invalidCount}개`;
     await db.finishSyncRun(runId, "success", result.updatedCount, detail);
     return { ...result, alerts, detail, syncedAt: new Date() };

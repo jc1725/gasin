@@ -5,7 +5,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   recordCollectedPriceItems: vi.fn(),
   listCollectedPriceHistory: vi.fn(),
-  checkAndSendExtensionPriceAlerts: vi.fn(),
+  checkAndSendPriceAlerts: vi.fn(),
   generatePendingDeepLinksForProductIds: vi.fn(),
 }));
 
@@ -13,7 +13,7 @@ vi.mock("./db", () => ({
   recordCollectedPriceItems: mocks.recordCollectedPriceItems,
   listCollectedPriceHistory: mocks.listCollectedPriceHistory,
 }));
-vi.mock("./priceAlertService", () => ({ checkAndSendExtensionPriceAlerts: mocks.checkAndSendExtensionPriceAlerts }));
+vi.mock("./priceAlertService", () => ({ checkAndSendPriceAlerts: mocks.checkAndSendPriceAlerts }));
 vi.mock("./deepLinks", () => ({ generatePendingDeepLinksForProductIds: mocks.generatePendingDeepLinksForProductIds }));
 
 import { registerCollectionRoutes } from "./collectionRoutes";
@@ -42,7 +42,7 @@ describe("collection REST API", () => {
     expect(token).not.toBe("");
     mocks.recordCollectedPriceItems.mockResolvedValue({ stored: 1, skipped: 0, alertProductIds: [17], pendingDeepLinkProductIds: [17], products: { created: 1, updated: 0, stale: 0, priceHistoryAdded: 1 } });
     mocks.generatePendingDeepLinksForProductIds.mockResolvedValue({ processedCount: 1, detail: "정확 SKU 딥링크 생성 완료" });
-    mocks.checkAndSendExtensionPriceAlerts.mockResolvedValue({ sent: 0 });
+    mocks.checkAndSendPriceAlerts.mockResolvedValue({ sent: 0 });
     const response = await fetch(`${baseUrl}/api/collect`, {
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", Origin: "chrome-extension://gasyn" },
@@ -53,7 +53,7 @@ describe("collection REST API", () => {
     expect(response.headers.get("access-control-allow-origin")).toBe("chrome-extension://gasyn");
     expect(response.headers.get("access-control-allow-headers")).toBe("Content-Type, Authorization");
     expect(mocks.recordCollectedPriceItems).toHaveBeenCalledWith([expect.objectContaining({ productId: "7144144379", itemId: "1057466829", vendorItemId: "5531594514", imageUrl: "https://image.example.test/shampoo.jpg", optionName: "500ml × 2개", capacityText: "500ml", quantity: 2, inStock: true, source: "gasyn-extension", collectedAt: new Date("2026-08-18T06:00:00.000Z") })]);
-    expect(mocks.checkAndSendExtensionPriceAlerts).toHaveBeenCalledWith([17]);
+    expect(mocks.checkAndSendPriceAlerts).toHaveBeenCalledWith([17]);
     expect(mocks.generatePendingDeepLinksForProductIds).toHaveBeenCalledWith([17]);
   });
 

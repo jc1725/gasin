@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   getBestCategoryProducts: vi.fn(),
 }));
 
+vi.mock("./priceAlertService", () => ({ checkAndSendPriceAlerts: async () => ({ sent: 0 }) }));
 vi.mock("./db", () => ({
   getSearchApiQuotaStatus: mocks.getSearchApiQuotaStatus,
   startSyncRun: mocks.startSyncRun,

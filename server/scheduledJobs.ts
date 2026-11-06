@@ -10,6 +10,7 @@ import { GoogleDriveTokenDecryptionError, syncProductsToPersonalGoogleDrive } fr
 import { sdk } from "./_core/sdk";
 import { isExcludedTrackingCategory } from "./categoryEligibility";
 import { logError, logInfo } from "./_core/log";
+import { checkAndSendPriceAlerts } from "./priceAlertService";
 
 type JobKey = "goldbox" | "bestcategory" | "price" | "retention";
 type JobOutcome = { processedCount: number; detail?: string; skipped?: boolean };
@@ -25,6 +26,23 @@ export function selectPrioritizedGoldBoxKeys<T extends { source: db.ProductSourc
 export function findUnmatchedGoldBoxKeys(selectedKeys: Set<string>, offers: Array<{ externalProductId: string }>) {
   const returnedKeys = new Set(offers.map(offer => offer.externalProductId));
   return Array.from(selectedKeys).filter(key => !returnedKeys.has(key));
+}
+
+/**
+ * 2026-11-06: 알림은 수집기든 공식 API든 상관없이 가장 최근 확인 가격으로 판정한다. 공식 API
+ * 갱신(골드박스·베스트·검색 재확인)으로 가격이 바뀐 상품도 여기서 목표가·24시간 최저가 알림을
+ * 평가한다. 알림 평가가 실패해도 가격 갱신 작업 자체는 실패로 만들지 않는다.
+ */
+export async function evaluatePriceAlertsAfterRefresh(refreshed: Array<{ id?: number | null }>) {
+  const productIds = Array.from(new Set(refreshed.flatMap(product => (typeof product.id === "number" && Number.isSafeInteger(product.id) && product.id > 0 ? [product.id] : []))));
+  if (productIds.length === 0) return "가격 알림 평가 대상 없음";
+  try {
+    const summary = await checkAndSendPriceAlerts(productIds);
+    return `가격 알림 ${productIds.length}개 상품 평가 · 발송 ${summary.sent}건`;
+  } catch (error) {
+    logError("price_refresh_alert_evaluation_failed", "scheduled_price_refresh", error, { alertProductCount: productIds.length });
+    return "가격 알림 평가 실패(가격 갱신은 완료)";
+  }
 }
 
 export const MAX_DEFERRED_SEARCH_RECHECKS_PER_RUN = 24;
@@ -244,6 +262,7 @@ export async function collectGoldBoxProducts() {
     }
     const products = await getGoldBoxProducts();
     const saved = await db.upsertCoupangProducts(products, "goldbox");
+    const alertDetail = await evaluatePriceAlertsAfterRefresh(saved);
     // 2026-09-18: 골드박스는 하루 1번 전체가 갱신되므로, 이번에 실제로 저장된 목록에
     // 없는 예전 골드박스 상품은 화면에서 내린다(isActive: false) — 어제 목록이 오늘
     // 목록과 섞여 보이는 걸 막는다.
@@ -252,7 +271,7 @@ export async function collectGoldBoxProducts() {
     const activatedManualLinks = await db.activateManualTracksForKnownProducts();
     const driveSnapshot = await syncProductSnapshotToDrive();
     await db.markScheduleCompleted("goldbox");
-    return { processedCount: saved.length, detail: `GoldBox 상품을 갱신했습니다. 이전 골드박스 상품 ${staleCleanup.deactivatedCount}개는 이번 목록에 없어 화면에서 내렸습니다. ${deepLinkBatch.detail}. 수동 대기 링크 ${activatedManualLinks}개를 활성화했습니다. ${driveSnapshot}.` } satisfies JobOutcome;
+    return { processedCount: saved.length, detail: `GoldBox 상품을 갱신했습니다. 이전 골드박스 상품 ${staleCleanup.deactivatedCount}개는 이번 목록에 없어 화면에서 내렸습니다. ${deepLinkBatch.detail}. 수동 대기 링크 ${activatedManualLinks}개를 활성화했습니다. ${alertDetail}. ${driveSnapshot}.` } satisfies JobOutcome;
   });
 }
 
@@ -344,6 +363,7 @@ export async function collectBestCategoryProducts(
         throw error;
       }
       const saved = await db.upsertCoupangProducts(offers, "bestcategory");
+      await evaluatePriceAlertsAfterRefresh(saved);
       await db.replaceCategoryBestProducts(categoryId, saved.map(product => product.id));
       onCategoryDone?.(categoryId);
       savedCount += saved.length;
@@ -423,6 +443,7 @@ export async function refreshTrackedPrices() {
     const matchingOffers = goldboxOffers.filter(offer => goldboxKeys.has(getCoupangVariantKey(offer)));
     const unmatchedKeys = findUnmatchedGoldBoxKeys(goldboxKeys, goldboxOffers.map(offer => ({ externalProductId: getCoupangVariantKey(offer) })));
     const refreshedProducts = await db.upsertCoupangProducts(matchingOffers, "goldbox");
+    const alertDetail = await evaluatePriceAlertsAfterRefresh(refreshedProducts);
     const deepLinkBatch = await generatePendingDeepLinks();
     const activatedManualLinks = await db.activateManualTracksForKnownProducts();
     const manualResolution = activatedManualLinks > 0
@@ -434,7 +455,7 @@ export async function refreshTrackedPrices() {
     const unmatchedDetail = unmatchedKeys.length > 0
       ? `GoldBox 응답에 없는 옵션 SKU ${unmatchedKeys.length}개(${unmatchedKeys.slice(0, 3).join(", ")})는 다음 승인된 GoldBox 응답에서 재매칭하며 Search API로 강제 재조회하지 않았습니다.`
       : "선별한 옵션 SKU가 모두 GoldBox 응답에서 확인되었습니다.";
-    return { processedCount: matchingOffers.length, detail: `GoldBox 승인 API로 가장 오래 확인되지 않은 추적 상품 ${matchingOffers.length}개를 갱신했습니다. 공식 API 기본가는 표시용이며 알림에는 사용하지 않습니다. ${unmatchedDetail} ${deepLinkBatch.detail}. ${manualResolution.detail ?? manualResolution.summary}. ${deferredSearchResolution}. ${driveSnapshot}. 검색 등록 ${deferredSearchCount}개는 안전한 Search API 예산을 위해 일괄 재조회하지 않았습니다.` } satisfies JobOutcome;
+    return { processedCount: matchingOffers.length, detail: `GoldBox 승인 API로 가장 오래 확인되지 않은 추적 상품 ${matchingOffers.length}개를 갱신했습니다. ${alertDetail}. ${unmatchedDetail} ${deepLinkBatch.detail}. ${manualResolution.detail ?? manualResolution.summary}. ${deferredSearchResolution}. ${driveSnapshot}. 검색 등록 ${deferredSearchCount}개는 안전한 Search API 예산을 위해 일괄 재조회하지 않았습니다.` } satisfies JobOutcome;
   });
 }
 
@@ -495,6 +516,7 @@ export async function refreshDeferredSearchPrices() {
     // 일정하고 상한이 8회로 작아서, 먼저 돌려도 재확인이 쓸 몫이 24회 남는다.
     const deepLinkBatch = await generatePendingDeepLinks();
     const outcome = await recheckDeferredSearchProductsForPriceJob();
+    const alertDetail = await evaluatePriceAlertsAfterRefresh(outcome.refreshedProducts ?? []);
     // 2026-10-01: 제품 그룹키(familyVariantKey)는 새로 추가한 컬럼이라 기존 행이 전부
     // 비어 있다. 관리자가 버튼을 눌러야만 채워지는 구조로 두면 "눌렀는지 아닌지"에 따라
     // 묶음이 반쯤 동작하는 상태가 생기므로, 이미 3분마다 확실히 도는 이 작업에 배치로
@@ -504,7 +526,7 @@ export async function refreshDeferredSearchPrices() {
     return {
       processedCount: outcome.processedCount,
       skipped: outcome.skipped,
-      detail: `${outcome.detail}. ${deepLinkBatch.detail}.${groupKeyBatch.updatedCount > 0 ? ` 제품 그룹키 ${groupKeyBatch.updatedCount}개 보완${groupKeyBatch.remaining ? "(남은 행 있음)" : "(완료)"}.` : ""} 공식 API 기본가는 표시용이며 알림에는 사용하지 않습니다. 검색 등록 ${searchTrackedCount}개 중 마지막 확인이 24시간 지난 상품을 오래된 순으로 최대 ${PRICE_REFRESH_SEARCH_BATCH_SIZE}개 처리합니다.`,
+      detail: `${outcome.detail}. ${deepLinkBatch.detail}.${groupKeyBatch.updatedCount > 0 ? ` 제품 그룹키 ${groupKeyBatch.updatedCount}개 보완${groupKeyBatch.remaining ? "(남은 행 있음)" : "(완료)"}.` : ""} ${alertDetail}. 검색 등록 ${searchTrackedCount}개 중 마지막 확인이 24시간 지난 상품을 오래된 순으로 최대 ${PRICE_REFRESH_SEARCH_BATCH_SIZE}개 처리합니다.`,
     } satisfies JobOutcome;
   });
 }

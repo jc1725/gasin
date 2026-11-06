@@ -41,7 +41,7 @@ import {
   getSearchApiQuotaStatus,
   listSearchSuggestions,
   listFavoriteTargetPrices,
-  listFavoriteExtensionAlertObservationStatuses,
+  listFavoriteAlertObservationStatuses,
   getLatestSyncRun,
   getPriceRefreshStats24h,
   getPriceTrackingPerformanceMetrics,
@@ -305,7 +305,7 @@ export const appRouter = router({
     }),
     alertObservationStatus: protectedProcedure.query(({ ctx }) => {
       requireGoogleUser(ctx.user.loginMethod);
-      return listFavoriteExtensionAlertObservationStatuses(ctx.user.id);
+      return listFavoriteAlertObservationStatuses(ctx.user.id);
     }),
     setTargetPrice: protectedProcedure
       .input(z.object({ productId: z.number().int().positive(), targetPrice: z.number().int().positive().max(100_000_000).nullable() }))

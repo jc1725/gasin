@@ -1,11 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  startSyncRun: vi.fn(), finishSyncRun: vi.fn(), listAllTrackedProducts: vi.fn(), getTrackingPrioritySummary: vi.fn(), getSearchApiQuotaStatus: vi.fn(), deferSearchProductRefresh: vi.fn(), upsertCoupangProducts: vi.fn(), activateManualTracksForKnownProducts: vi.fn(), getNextWaitingManualLink: vi.fn(), setManualLinkWaitingError: vi.fn(), getDeferredSearchProducts: vi.fn(), recordDeferredSearchRecheckMiss: vi.fn(), markScheduleCompleted: vi.fn(), getGoogleDriveSnapshotConnection: vi.fn(), saveGoogleDriveSnapshotFile: vi.fn(), getGoldBoxProducts: vi.fn(), getCoupangVariantKey: vi.fn(), generatePendingDeepLinks: vi.fn(), searchCatalogSafely: vi.fn(), syncProductsToPersonalGoogleDrive: vi.fn(),
+  checkAndSendPriceAlerts: vi.fn(), startSyncRun: vi.fn(), finishSyncRun: vi.fn(), listAllTrackedProducts: vi.fn(), getTrackingPrioritySummary: vi.fn(), getSearchApiQuotaStatus: vi.fn(), deferSearchProductRefresh: vi.fn(), upsertCoupangProducts: vi.fn(), activateManualTracksForKnownProducts: vi.fn(), getNextWaitingManualLink: vi.fn(), setManualLinkWaitingError: vi.fn(), getDeferredSearchProducts: vi.fn(), recordDeferredSearchRecheckMiss: vi.fn(), markScheduleCompleted: vi.fn(), getGoogleDriveSnapshotConnection: vi.fn(), saveGoogleDriveSnapshotFile: vi.fn(), getGoldBoxProducts: vi.fn(), getCoupangVariantKey: vi.fn(), generatePendingDeepLinks: vi.fn(), searchCatalogSafely: vi.fn(), syncProductsToPersonalGoogleDrive: vi.fn(),
 }));
 
 vi.mock("./db", () => ({ startSyncRun: mocks.startSyncRun, finishSyncRun: mocks.finishSyncRun, listAllTrackedProducts: mocks.listAllTrackedProducts, getTrackingPrioritySummary: mocks.getTrackingPrioritySummary, getSearchApiQuotaStatus: mocks.getSearchApiQuotaStatus, deferSearchProductRefresh: mocks.deferSearchProductRefresh, upsertCoupangProducts: mocks.upsertCoupangProducts, activateManualTracksForKnownProducts: mocks.activateManualTracksForKnownProducts, getNextWaitingManualLink: mocks.getNextWaitingManualLink, setManualLinkWaitingError: mocks.setManualLinkWaitingError, getDeferredSearchProducts: mocks.getDeferredSearchProducts, recordDeferredSearchRecheckMiss: mocks.recordDeferredSearchRecheckMiss, markScheduleCompleted: mocks.markScheduleCompleted, getGoogleDriveSnapshotConnection: mocks.getGoogleDriveSnapshotConnection, saveGoogleDriveSnapshotFile: mocks.saveGoogleDriveSnapshotFile }));
 vi.mock("./coupang", () => ({ COUPANG_BEST_CATEGORY_IDS: [], getBestCategoryProducts: vi.fn(), getGoldBoxProducts: mocks.getGoldBoxProducts, getCoupangVariantKey: mocks.getCoupangVariantKey }));
+vi.mock("./priceAlertService", () => ({ checkAndSendPriceAlerts: mocks.checkAndSendPriceAlerts }));
 vi.mock("./deepLinks", () => ({ generatePendingDeepLinks: mocks.generatePendingDeepLinks }));
 vi.mock("./catalogSearch", () => ({ searchCatalogSafely: mocks.searchCatalogSafely }));
 vi.mock("./googleDrivePersonal", () => ({ syncProductsToPersonalGoogleDrive: mocks.syncProductsToPersonalGoogleDrive }));
@@ -28,11 +29,21 @@ describe("daily tracked-price alert handoff", () => {
     mocks.activateManualTracksForKnownProducts.mockResolvedValue(1);
     mocks.getGoogleDriveSnapshotConnection.mockResolvedValue(undefined);
     mocks.getDeferredSearchProducts.mockResolvedValue([]);
+    mocks.checkAndSendPriceAlerts.mockResolvedValue({ sent: 2 });
   });
 
-  it("공식 API 가격 갱신은 와우 회원가 알림을 트리거하지 않는다", async () => {
+  it("공식 API 가격 갱신 뒤 갱신된 상품의 목표가·최저가 알림을 평가한다", async () => {
     await refreshTrackedPrices();
 
-    expect(mocks.finishSyncRun).toHaveBeenCalledWith(1, "success", 1, expect.stringContaining("공식 API 기본가는 표시용이며 알림에는 사용하지 않습니다."));
+    expect(mocks.checkAndSendPriceAlerts).toHaveBeenCalledWith([91]);
+    expect(mocks.finishSyncRun).toHaveBeenCalledWith(1, "success", 1, expect.stringContaining("가격 알림 1개 상품 평가 · 발송 2건"));
+  });
+
+  it("알림 평가가 실패해도 가격 갱신 작업은 성공으로 끝난다", async () => {
+    mocks.checkAndSendPriceAlerts.mockRejectedValue(new Error("smtp down"));
+
+    await refreshTrackedPrices();
+
+    expect(mocks.finishSyncRun).toHaveBeenCalledWith(1, "success", 1, expect.stringContaining("가격 알림 평가 실패(가격 갱신은 완료)"));
   });
 });

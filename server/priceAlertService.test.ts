@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  listExtensionAlertObservationStatuses: vi.fn(),
+  listAlertObservationStatuses: vi.fn(),
   getProductById: vi.fn(),
-  get24hLowestExtensionPrice: vi.fn(),
+  get24hLowestPrice: vi.fn(),
   listPriceAlertRecipients: vi.fn(),
   claimPriceAlertDelivery: vi.fn(),
   completePriceAlertDelivery: vi.fn(),
@@ -18,9 +18,9 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("./db", () => ({
-  listExtensionAlertObservationStatuses: mocks.listExtensionAlertObservationStatuses,
+  listAlertObservationStatuses: mocks.listAlertObservationStatuses,
   getProductById: mocks.getProductById,
-  get24hLowestExtensionPrice: mocks.get24hLowestExtensionPrice,
+  get24hLowestPrice: mocks.get24hLowestPrice,
   listPriceAlertRecipients: mocks.listPriceAlertRecipients,
   claimPriceAlertDelivery: mocks.claimPriceAlertDelivery,
   completePriceAlertDelivery: mocks.completePriceAlertDelivery,
@@ -37,17 +37,17 @@ vi.mock("./gmailSender", async importOriginal => {
 vi.mock("./webPushSender", () => ({ sendTargetPricePushNotification: mocks.sendTargetPricePushNotification }));
 vi.mock("./priceAlertUnsubscribe", () => ({ buildPriceAlertUnsubscribeUrl: mocks.buildPriceAlertUnsubscribeUrl }));
 
-import { checkAndSendExtensionPriceAlerts, hasReachedTargetPrice, is24hLowestPrice } from "./priceAlertService";
+import { checkAndSendPriceAlerts, hasReachedTargetPrice, is24hLowestPrice } from "./priceAlertService";
 
 const recipient = { userId: 7, email: "buyer@gmail.com", productId: 42, favoriteId: 81, favoriteCreatedAt: new Date("2026-08-17T01:00:00.000Z"), targetPrice: null, targetPriceVersion: 0 };
 const observedAt = new Date("2026-08-25T23:55:00.000Z");
 
-describe("확장 프로그램 와우 회원가 알림", () => {
+describe("최신 확인 가격 기준 알림 (수집기·공식 API 구분 없음)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.listExtensionAlertObservationStatuses.mockResolvedValue([{ productId: 42, price: 12_900, observedAt, isFresh: true }]);
+    mocks.listAlertObservationStatuses.mockResolvedValue([{ productId: 42, price: 12_900, observedAt, isFresh: true }]);
     mocks.getProductById.mockResolvedValue({ id: 42, name: "테스트 커피", currentPrice: 15_900, affiliateUrl: "https://link.coupang.com/a/test", deepLinkUrl: "https://link.coupang.com/a/ready" });
-    mocks.get24hLowestExtensionPrice.mockResolvedValue(12_900);
+    mocks.get24hLowestPrice.mockResolvedValue(12_900);
     mocks.listPriceAlertRecipients.mockResolvedValue([recipient]);
     mocks.claimPriceAlertDelivery.mockResolvedValue(101);
     mocks.sendPriceAlertEmail.mockResolvedValue({ messageId: "smtp-id" });
@@ -58,8 +58,8 @@ describe("확장 프로그램 와우 회원가 알림", () => {
     mocks.getProductGroupSummary.mockResolvedValue({ memberCount: 1, sellerCount: 1, lowestPrice: null, lowestProduct: null });
   });
 
-  it("공식 API 현재가가 달라도 신선한 확장 프로그램 회원가만으로 최저가 알림을 보낸다", async () => {
-    const result = await checkAndSendExtensionPriceAlerts([42]);
+  it("신선한 최신 확인 가격이 24시간 최저가이면 출처와 상관없이 최저가 알림을 보낸다", async () => {
+    const result = await checkAndSendPriceAlerts([42]);
     expect(result).toMatchObject({ eligibleProducts: 1, sent: 1 });
     expect(mocks.claimPriceAlertDelivery).toHaveBeenCalledWith(expect.objectContaining({ currentPrice: 12_900, lowestPrice24h: 12_900 }));
     expect(mocks.sendPriceAlertEmail).toHaveBeenCalledWith(expect.objectContaining({ currentPrice: 12_900, checkedAt: observedAt }));
@@ -74,7 +74,7 @@ describe("확장 프로그램 와우 회원가 알림", () => {
       lowestPrice: 11_900,
       lowestProduct: { id: 77, currentPrice: 11_900, deepLinkUrl: "https://link.coupang.com/a/cheaper" },
     });
-    await expect(checkAndSendExtensionPriceAlerts([42])).resolves.toMatchObject({ sent: 1 });
+    await expect(checkAndSendPriceAlerts([42])).resolves.toMatchObject({ sent: 1 });
     expect(mocks.sendPriceAlertEmail).toHaveBeenCalledWith(expect.objectContaining({ affiliateUrl: "https://link.coupang.com/a/cheaper" }));
   });
 
@@ -85,30 +85,46 @@ describe("확장 프로그램 와우 회원가 알림", () => {
       lowestPrice: 11_900,
       lowestProduct: { id: 77, currentPrice: 11_900, deepLinkUrl: null },
     });
-    await expect(checkAndSendExtensionPriceAlerts([42])).resolves.toMatchObject({ sent: 1 });
+    await expect(checkAndSendPriceAlerts([42])).resolves.toMatchObject({ sent: 1 });
     expect(mocks.sendPriceAlertEmail).toHaveBeenCalledWith(expect.objectContaining({ affiliateUrl: "https://link.coupang.com/a/ready" }));
   });
 
   it("그룹 최저가 조회가 실패해도 알림은 그대로 나간다", async () => {
     mocks.getProductGroupSummary.mockRejectedValue(new Error("db unavailable"));
-    await expect(checkAndSendExtensionPriceAlerts([42])).resolves.toMatchObject({ sent: 1 });
+    await expect(checkAndSendPriceAlerts([42])).resolves.toMatchObject({ sent: 1 });
     expect(mocks.sendPriceAlertEmail).toHaveBeenCalledWith(expect.objectContaining({ affiliateUrl: "https://link.coupang.com/a/ready" }));
   });
 
   it("7일을 넘긴 관측은 목표가를 만족해도 알림을 보내지 않는다", async () => {
-    mocks.listExtensionAlertObservationStatuses.mockResolvedValue([{ productId: 42, price: 9_900, observedAt: new Date("2026-08-18T00:00:00.000Z"), isFresh: false }]);
+    mocks.listAlertObservationStatuses.mockResolvedValue([{ productId: 42, price: 9_900, observedAt: new Date("2026-08-18T00:00:00.000Z"), isFresh: false }]);
     mocks.listPriceAlertRecipients.mockResolvedValue([{ ...recipient, targetPrice: 10_000, targetPriceVersion: 2 }]);
-    await expect(checkAndSendExtensionPriceAlerts([42])).resolves.toMatchObject({ eligibleProducts: 0, sent: 0 });
+    await expect(checkAndSendPriceAlerts([42])).resolves.toMatchObject({ eligibleProducts: 0, sent: 0 });
     expect(mocks.claimTargetPriceAlertDelivery).not.toHaveBeenCalled();
     expect(mocks.sendPriceAlertEmail).not.toHaveBeenCalled();
   });
 
-  it("신선한 회원가가 목표가 이하일 때만 목표가 알림을 보낸다", async () => {
+  it("신선한 최신 확인 가격이 목표가 이하일 때만 목표가 알림을 보낸다", async () => {
     mocks.listPriceAlertRecipients.mockResolvedValue([{ ...recipient, targetPrice: 13_000, targetPriceVersion: 2 }]);
     mocks.claimTargetPriceAlertDelivery.mockResolvedValue(202);
-    await expect(checkAndSendExtensionPriceAlerts([42])).resolves.toMatchObject({ eligibleProducts: 1, sent: 1 });
+    await expect(checkAndSendPriceAlerts([42])).resolves.toMatchObject({ eligibleProducts: 1, sent: 1 });
     expect(mocks.claimTargetPriceAlertDelivery).toHaveBeenCalledWith(expect.objectContaining({ currentPrice: 12_900, targetPrice: 13_000 }));
     expect(mocks.sendTargetPricePushNotification).toHaveBeenCalledWith(expect.objectContaining({ currentPrice: 12_900 }));
+  });
+
+  it("받을 사람이 없는 상품은 24시간 최저가 조회와 그룹 조회를 건너뛴다", async () => {
+    mocks.listPriceAlertRecipients.mockResolvedValue([]);
+    await expect(checkAndSendPriceAlerts([42])).resolves.toMatchObject({ eligibleProducts: 0, sent: 0 });
+    expect(mocks.get24hLowestPrice).not.toHaveBeenCalled();
+    expect(mocks.getProductGroupSummary).not.toHaveBeenCalled();
+  });
+
+  it("공식 API 가격이 최신이어도 목표가 이하이면 목표가 알림을 보낸다", async () => {
+    mocks.listAlertObservationStatuses.mockResolvedValue([{ productId: 42, price: 11_500, observedAt, isFresh: true }]);
+    mocks.get24hLowestPrice.mockResolvedValue(11_500);
+    mocks.listPriceAlertRecipients.mockResolvedValue([{ ...recipient, targetPrice: 12_000, targetPriceVersion: 3 }]);
+    mocks.claimTargetPriceAlertDelivery.mockResolvedValue(303);
+    await expect(checkAndSendPriceAlerts([42])).resolves.toMatchObject({ eligibleProducts: 1, sent: 1 });
+    expect(mocks.claimTargetPriceAlertDelivery).toHaveBeenCalledWith(expect.objectContaining({ currentPrice: 11_500, targetPrice: 12_000 }));
   });
 
   it("기본 가격 비교 함수는 같은 값 또는 더 낮은 값만 허용한다", () => {
@@ -123,7 +139,7 @@ describe("확장 프로그램 와우 회원가 알림", () => {
     const timeoutError = Object.assign(new Error("Connection timeout"), { code: "ETIMEDOUT", command: "CONN" });
     mocks.sendPriceAlertEmail.mockRejectedValueOnce(timeoutError);
 
-    const result = await checkAndSendExtensionPriceAlerts([42]);
+    const result = await checkAndSendPriceAlerts([42]);
 
     expect(result).toMatchObject({ eligibleProducts: 1, sent: 0, failed: 1 });
     expect(mocks.failPriceAlertDelivery).toHaveBeenCalledWith(101, expect.stringContaining("Railway"));
