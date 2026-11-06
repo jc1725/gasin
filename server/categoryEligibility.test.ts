@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getExcludedTrackingCategory, isExcludedTrackingCategory } from "./categoryEligibility";
+import { EXCLUDED_BEST_CATEGORY_IDS, getExcludedTrackingCategory, isExcludedTrackingCategory } from "./categoryEligibility";
 
 describe("category eligibility", () => {
   it("excludes travel categories even when the product name is generic", () => {
@@ -55,5 +55,17 @@ describe("category eligibility", () => {
         url: "https://www.coupang.com/vp/products/1234567?itemId=1&vendorItemId=1",
       }),
     ).toBe(false);
+  });
+
+  // 2026-11-06: 도서는 가격 수집·갱신 대상이 아니다.
+  it("excludes book categories but not unrelated products", () => {
+    expect(getExcludedTrackingCategory({ categoryName: "국내도서>소설" })).toBe("도서");
+    expect(getExcludedTrackingCategory({ categoryName: "도서/음반/DVD" })).toBe("도서");
+    expect(isExcludedTrackingCategory({ categoryName: "주방용품", name: "독서대 접이식" })).toBe(false);
+  });
+
+  it("skips the 도서/음반/DVD best-category code (1019) in collection", () => {
+    expect(EXCLUDED_BEST_CATEGORY_IDS).toContain(1019);
+    expect(EXCLUDED_BEST_CATEGORY_IDS).not.toContain(1016);
   });
 });

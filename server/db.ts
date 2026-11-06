@@ -47,7 +47,7 @@ import { summarizeExternalCronQueue } from "./externalCronQueue";
 import { chooseTrackedPrice, hasWowMemberPrice } from "./wowMemberPrice";
 import { buildAlertObservationStatus, type AlertObservationStatus } from "./extensionAlertObservation";
 import { classifyMissingSearch } from "./searchFailureClassification";
-import { isExcludedTrackingCategory, getExcludedTrackingCategory, EXCLUDED_TRACKING_CATEGORY_LABEL } from "./categoryEligibility";
+import { isExcludedTrackingCategory, getExcludedTrackingCategory, EXCLUDED_TRACKING_CATEGORY_LABEL, EXCLUDED_BEST_CATEGORY_IDS } from "./categoryEligibility";
 import { buildCollectorProductMetadata, hasMissingCollectorMetadata } from "./collectorMetadata";
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -1714,7 +1714,8 @@ export async function listHomeFeaturedProducts(limit = 50) {
     .select({ productId: categoryBestProducts.productId, position: categoryBestProducts.position, collectedAt: categoryBestProducts.collectedAt })
     .from(categoryBestProducts)
     .innerJoin(products, eq(categoryBestProducts.productId, products.id))
-    .where(eq(products.isActive, true))
+    // 2026-11-06: 도서(1019) 카테고리에 예전에 저장된 행이 홈에 남지 않게 코드 단위로 뺀다.
+    .where(and(eq(products.isActive, true), notInArray(categoryBestProducts.categoryId, [...EXCLUDED_BEST_CATEGORY_IDS])))
     .orderBy(asc(categoryBestProducts.position), desc(categoryBestProducts.collectedAt))
     .limit(300);
   const orderedIds = Array.from(new Set(ranked.map(row => row.productId)));

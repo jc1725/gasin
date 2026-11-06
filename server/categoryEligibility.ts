@@ -2,6 +2,8 @@ const CATEGORY_PATTERNS: Array<{ label: string; pattern: RegExp }> = [
   { label: "숙박", pattern: /숙박|호텔|리조트|펜션|모텔/i },
   { label: "여행", pattern: /여행|항공권|렌터카|렌트카|투어/i },
   { label: "티켓", pattern: /티켓|입장권|이용권/i },
+  // 2026-11-06: 도서는 가격 수집·갱신 대상이 아니다(쿠팡 도서/음반/DVD 카테고리 등).
+  { label: "도서", pattern: /도서/i },
 ];
 
 const NAME_PATTERNS: Array<{ label: string; pattern: RegExp }> = [
@@ -54,4 +56,10 @@ export function isExcludedTrackingCategory(value: Parameters<typeof getExcludedT
   return Boolean(getExcludedTrackingCategory(value));
 }
 
-export const EXCLUDED_TRACKING_CATEGORY_LABEL = "숙박·여행·티켓";
+export const EXCLUDED_TRACKING_CATEGORY_LABEL = "숙박·여행·티켓·도서";
+
+/**
+ * 2026-11-06: 카테고리 베스트 API 코드 중 가격 수집·갱신에서 빼는 코드. 1019는 "도서/음반/DVD"다.
+ * 응답의 categoryName이 비어 있어도 도서가 섞여 들어오지 않도록 코드 단위로 처음부터 호출하지 않는다.
+ */
+export const EXCLUDED_BEST_CATEGORY_IDS: readonly number[] = [1019];

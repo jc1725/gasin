@@ -8,7 +8,7 @@ import { findSkuWithFallbackQueries } from "./multiStageSkuMatcher";
 import { CoupangRateLimitError } from "./coupangRateLimit";
 import { GoogleDriveTokenDecryptionError, syncProductsToPersonalGoogleDrive } from "./googleDrivePersonal";
 import { sdk } from "./_core/sdk";
-import { isExcludedTrackingCategory } from "./categoryEligibility";
+import { EXCLUDED_BEST_CATEGORY_IDS, isExcludedTrackingCategory } from "./categoryEligibility";
 import { logError, logInfo } from "./_core/log";
 import { checkAndSendPriceAlerts } from "./priceAlertService";
 
@@ -341,7 +341,7 @@ export async function runGoldBoxDailySchedule(now: Date = new Date()) {
 }
 
 export async function collectBestCategoryProducts(
-  categoryIds: readonly number[] = COUPANG_BEST_CATEGORY_IDS,
+  categoryIds: readonly number[] = COUPANG_BEST_CATEGORY_IDS.filter(categoryId => !EXCLUDED_BEST_CATEGORY_IDS.includes(categoryId)),
   onCategoryDone?: (categoryId: number) => void,
 ) {
   return runTrackedJob("bestcategory", async () => {
@@ -414,6 +414,7 @@ export async function runBestCategoryDailySchedule(now: Date = new Date()) {
   try {
     const collectedAtByCategory = await db.getCategoryBestCollectedAtByCategory();
     const due = COUPANG_BEST_CATEGORY_IDS.filter(categoryId => {
+      if (EXCLUDED_BEST_CATEGORY_IDS.includes(categoryId)) return false;
       if (bestCategoryDoneOnDay.get(categoryId) === today) return false;
       const collectedAt = collectedAtByCategory.get(categoryId);
       return !collectedAt || collectedAt.getTime() < threshold;
