@@ -248,6 +248,12 @@ function getComparableKoreanOnlyTokens(value: string) {
     .filter(token => !GENERIC_COLLECTION_OPTION_TOKENS.has(token));
 }
 
+/** 쉼표·슬래시·괄호로 나눈 항목이 2개 이상이고, 모든 항목이 두 단어 이하인 "나열형" 옵션인지. */
+function isShortItemListOption(optionName: string) {
+  const items = optionName.split(/[,，/()（）\[\]·×]/).map(item => item.trim()).filter(Boolean);
+  return items.length >= 2 && items.every(item => item.split(/\s+/).length <= 2);
+}
+
 /** 수집기가 이전 페이지의 옵션 텍스트를 보내는 경우, 다른 상품의 구성 정보가 현재 SKU를 덮어쓰지 않도록 막는다. */
 export function isCollectedOptionMetadataCompatible(productName: string, optionName: string | null) {
   if (!optionName) return true;
@@ -260,6 +266,11 @@ export function isCollectedOptionMetadataCompatible(productName: string, optionN
   // 현재 상품명과 의미 있는 단어를 공유할 때만 적용한다. "문장형인지"는 한글 토큰 수로만
   // 판단한다("MFHP4KH/A" 같은 영문 모델 코드가 숫자에서 쪼개져 단어 수를 부풀리는 것을 방지).
   if (getComparableKoreanOnlyTokens(optionName).length < 3) return true;
+  // 2026-11-06: "1호, 베이직(백아이보리, 아이보리, 베이지, 진베이지, 올리브, 진브라운)"이나
+  // "테라, 박설희, 김민정"(출판사·저자)처럼 쉼표·괄호로 나열된 짧은 항목들은 서술형 문장이 아니라
+  // 색상·사이즈·저자 같은 옵션 목록이다. 한글 단어가 3개 이상이라는 이유만으로 거절하면 실제 옵션이
+  // 상품에 반영되지 않아 "옵션 미확인"으로 남는다. 항목마다 두 단어 이하인 목록은 통과시킨다.
+  if (isShortItemListOption(optionName)) return true;
   return optionTokens.some(token => productTokens.has(token));
 }
 
