@@ -40,7 +40,7 @@ export async function evaluatePriceAlertsAfterRefresh(refreshed: Array<{ id?: nu
     const summary = await checkAndSendPriceAlerts(productIds);
     return `가격 알림 ${productIds.length}개 상품 평가 · 발송 ${summary.sent}건`;
   } catch (error) {
-    logError("price_refresh_alert_evaluation_failed", "scheduled_price_refresh", error, { alertProductCount: productIds.length });
+    logError("price_refresh_alert_evaluation_failed", "scheduler", error, { alertProductCount: productIds.length });
     return "가격 알림 평가 실패(가격 갱신은 완료)";
   }
 }
