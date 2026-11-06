@@ -129,4 +129,24 @@ describe("getLatestCheckedPrice", () => {
   it("확인 기록이 없으면 null", () => {
     expect(getLatestCheckedPrice([], [])).toBeNull();
   });
+
+  // 2026-11-06: 수집기 마지막 관측(10/29, 17,950원)보다 공식 API 이력(11/5, 7,900원)이 최신인데 카드가 옛 값을 보여 줬다.
+  it("공식 API 가격 이력이 수집기 관측보다 최근이면 공식 값을 돌려준다", () => {
+    const official = [
+      { price: 9300, recordedAt: new Date("2026-11-02T01:00:00.000Z") },
+      { price: 7900, recordedAt: new Date("2026-11-05T01:00:00.000Z") },
+    ];
+    const collected = [{ productId: "sku", price: 17950, collectedAt: new Date("2026-10-29T00:35:00.000Z") }];
+    expect(getLatestCheckedPrice([], collected, official)).toEqual({ price: 7900, checkedAt: new Date("2026-11-05T01:00:00.000Z"), source: "official" });
+  });
+
+  it("수집기 관측이 공식 이력보다 최근이면 수집기 값을 쓰고, 시각이 같으면 수집기를 우선한다", () => {
+    const official = [{ price: 7900, recordedAt: new Date("2026-11-05T01:00:00.000Z") }];
+    expect(getLatestCheckedPrice([], [collect(8100, "14")], [{ price: 7900, recordedAt: new Date("2026-10-01T01:00:00.000Z") }])?.source).toBe("collector");
+    expect(getLatestCheckedPrice([], [{ productId: "sku", price: 8000, collectedAt: new Date("2026-11-05T01:00:00.000Z") }], official)?.source).toBe("collector");
+  });
+
+  it("공식 이력의 0원·잘못된 값은 건너뛴다", () => {
+    expect(getLatestCheckedPrice([], [], [{ price: 0, recordedAt: new Date("2026-11-05T01:00:00.000Z") }])).toBeNull();
+  });
 });

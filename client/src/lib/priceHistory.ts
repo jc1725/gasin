@@ -26,20 +26,27 @@ function toDate(value: Date | string) {
   return value instanceof Date ? value : new Date(value);
 }
 
-export type LatestCheckedPrice = { price: number; checkedAt: Date; source: "confirmed" | "collector" };
+export type LatestCheckedPrice = { price: number; checkedAt: Date; source: "confirmed" | "collector" | "official" };
 
 /**
  * "최근 확인 가격" 카드용: 사용자가 직접 확인한 가격과 수집기가 관측한 가격 중 가장 최근 것을 고른다.
  * 2026-10-14: 카드가 사용자 확인 가격만 보고 있어서, 수집기가 매일 가격을 모으는 상품도
  * 몇 달 전(8/18) 수동 확인 값이 "최근 확인"으로 보였다. 품절 관측과 가격이 없는 관측은 제외하고,
  * 시각이 같으면 사용자 확인 값을 우선한다.
+ *
+ * 2026-11-06: 공식 API로 확인한 가격 이력(official)도 후보에 넣는다. 수집기 관측만 보면, 수집기가
+ * 한동안 못 본 상품은 가격 이력 그래프에 11/5 값이 있는데도 카드가 10/29 값(17,950원, 현재가
+ * 7,900원과 크게 다름)을 "가장 최근 확인"으로 보여 줬다. 시각이 같으면 사용자 확인 > 수집기 > 공식 순이다.
  */
-export function getLatestCheckedPrice(confirmed: ConfirmedPricePoint[], collected: CollectedPricePoint[]): LatestCheckedPrice | null {
+export function getLatestCheckedPrice(confirmed: ConfirmedPricePoint[], collected: CollectedPricePoint[], official: OfficialPricePoint[] = []): LatestCheckedPrice | null {
   const candidates: LatestCheckedPrice[] = [
     ...confirmed.map(point => ({ price: point.price, checkedAt: toDate(point.checkedAt), source: "confirmed" as const })),
     ...collected
       .filter(point => point.inStock !== false && typeof point.price === "number" && Number.isSafeInteger(point.price) && point.price > 0)
       .map(point => ({ price: point.price as number, checkedAt: toDate(point.collectedAt), source: "collector" as const })),
+    ...official
+      .filter(point => Number.isSafeInteger(point.price) && point.price > 0)
+      .map(point => ({ price: point.price, checkedAt: toDate(point.recordedAt), source: "official" as const })),
   ].filter(point => !Number.isNaN(point.checkedAt.getTime()));
   if (candidates.length === 0) return null;
   return candidates.reduce((latest, point) => point.checkedAt.getTime() > latest.checkedAt.getTime() ? point : latest);
