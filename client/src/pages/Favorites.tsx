@@ -72,8 +72,15 @@ export default function Favorites() {
           const alertObservation = alertObservationByProductId.get(product.id);
           const isEditingTarget = editingTargetProductId === product.id;
           const hasReachedTarget = targetPrice !== null && alertObservation?.isFresh === true && (alertObservation.price ?? Number.POSITIVE_INFINITY) <= targetPrice;
+          // 2026-11-06: 이 줄은 수집기든 공식 API든 상관없이 "상품이 가장 최근에 확인된" 가격·시각을 보여준다
+          // (위 카드 가격과 같은 값). 예전에는 알림 판정용 수집기 회원가만 보여줘서 카드 가격과 어긋났다.
+          // 알림 발송·도달 판정(alertObservation)은 그대로 수집기 와우 적용가만 쓴다.
+          const latestSeenAt = product.lastSeenAt ? new Date(product.lastSeenAt) : null;
+          const hasLatestSeen = latestSeenAt !== null && !Number.isNaN(latestSeenAt.getTime()) && product.currentPrice > 0;
           const observationMessage = alertObservation?.isFresh
-            ? `알림 기준 회원가 ${new Intl.NumberFormat("ko-KR").format(alertObservation.price ?? 0)}원 · ${new Date(alertObservation.observedAt!).toLocaleDateString("ko-KR")} 관측`
+            ? hasLatestSeen
+              ? `최근 확인 가격 ${new Intl.NumberFormat("ko-KR").format(product.currentPrice)}원 · ${latestSeenAt.toLocaleDateString("ko-KR")} 확인`
+              : `최근 확인 가격 ${new Intl.NumberFormat("ko-KR").format(alertObservation.price ?? 0)}원 · ${new Date(alertObservation.observedAt!).toLocaleDateString("ko-KR")} 확인`
             : alertObservation?.observedAt
               ? "최근 수집이 부족합니다 · 7일이 지난 관측값은 알림에 사용하지 않습니다."
               : "최근 수집이 부족합니다 · 확장 프로그램에서 이 상품을 다시 열어 가격을 수집해 주세요.";
