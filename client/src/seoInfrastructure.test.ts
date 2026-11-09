@@ -47,4 +47,14 @@ describe("GEO·SEO 기반 파일", () => {
     expect(serverIndex).toContain('Permissions-Policy');
     expect(imageProxy).toContain('.webp({ quality: 72');
   });
+
+  // 2026-11-09: 실제 방문 확인용 Google Tag Manager(GA4). <head> 첫머리 스크립트 + <body> noscript, CSP 허용.
+  it("Google Tag Manager 컨테이너를 head 맨 앞에 설치하고 CSP가 허용한다", () => {
+    expect(html).toContain("GTM-WNHDVS87");
+    expect(html.indexOf("googletagmanager.com/gtm.js")).toBeGreaterThan(html.indexOf("<head>"));
+    expect(html.indexOf("googletagmanager.com/gtm.js")).toBeLessThan(html.indexOf("<meta charset"));
+    expect(html).toContain("googletagmanager.com/ns.html?id=GTM-WNHDVS87");
+    expect(serverIndex).toMatch(/script-src[^;]*https:\/\/www\.googletagmanager\.com/);
+    expect(serverIndex).toMatch(/frame-src[^;]*https:\/\/www\.googletagmanager\.com/);
+  });
 });
