@@ -42,6 +42,7 @@ import {
   listSearchSuggestions,
   listFavoriteTargetPrices,
   listFavoriteAlertObservationStatuses,
+  listActiveProductsByExternalIds,
   getLatestSyncRun,
   getPriceRefreshStats24h,
   getPriceTrackingPerformanceMetrics,
@@ -262,6 +263,11 @@ export const appRouter = router({
       .input(z.object({ query: z.string().trim().max(80), limit: z.number().int().min(1).max(8).optional() }))
       .query(({ input }) => listSearchSuggestions(input.query, input.limit)),
     searchStatus: publicProcedure.query(() => getSearchApiQuotaStatus()),
+    // 2026-11-13: 검색 화면이 보관해 둔 결과(뒤로 가기 복원 등)를 저장된 최신 상태로 덮어쓰기 위한 조회.
+    // DB만 읽고 쿠팡 API는 부르지 않는다.
+    currentProducts: publicProcedure
+      .input(z.object({ externalProductIds: z.array(z.string().trim().min(1).max(120)).max(30) }))
+      .query(({ input }) => listActiveProductsByExternalIds(input.externalProductIds)),
   }),
   // 2026-10-01 리뉴얼 2단계: 착한경유(쿠팡 이동) 클릭 기록. 실패해도 이동을 막지 않는다.
   goodVia: router({

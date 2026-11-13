@@ -3511,6 +3511,18 @@ export async function pruneGoodViaEvents(before: Date, maxChunks = 20) {
  * 비활성 행은 뺀다 — upsertCoupangProduct는 isActive를 true로 되돌리므로, 정리해서 비활성으로
  * 돌린 상품이 다른 상품의 재확인 검색 결과에 섞여 나올 때마다 다시 살아나면 안 된다.
  */
+/**
+ * 2026-11-13: 검색 결과 카드가 저장된 상품의 최신 상태(수집기 가격·옵션·확인 시각)를 쓰도록,
+ * 정확 SKU 키로 활성 상품을 카드에 필요한 필드만 읽는다. 쿠팡 API는 부르지 않는다.
+ */
+export async function listActiveProductsByExternalIds(externalProductIds: string[]) {
+  const unique = Array.from(new Set(externalProductIds.map(id => id.trim()).filter(Boolean))).slice(0, 30);
+  if (unique.length === 0) return [];
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(products).where(and(inArray(products.externalProductId, unique), eq(products.isActive, true)));
+}
+
 export async function findExistingExternalProductIds(externalProductIds: string[]) {
   const unique = Array.from(new Set(externalProductIds.filter(Boolean)));
   if (unique.length === 0) return new Set<string>();

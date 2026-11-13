@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
   upsertCoupangProducts: vi.fn(),
   upsertCoupangProduct: vi.fn(),
   invalidateCachedSearchProducts: vi.fn(),
+  listActiveProductsByExternalIds: vi.fn(),
 }));
 
 vi.mock("./db", () => ({
@@ -25,6 +26,7 @@ vi.mock("./db", () => ({
   upsertCoupangProducts: mocks.upsertCoupangProducts,
   upsertCoupangProduct: mocks.upsertCoupangProduct,
   invalidateCachedSearchProducts: mocks.invalidateCachedSearchProducts,
+  listActiveProductsByExternalIds: mocks.listActiveProductsByExternalIds,
 }));
 vi.mock("./coupang", async () => {
   const actual = await vi.importActual<typeof import("./coupang")>("./coupang");
@@ -32,6 +34,7 @@ vi.mock("./coupang", async () => {
 });
 
 import { materializeSearchResult, searchCatalogSafely } from "./catalogSearch";
+import { getCoupangVariantKey } from "./coupang";
 
 function rawProduct(productId: number) {
   return {
@@ -51,6 +54,7 @@ describe("lazy-tracking search (persistNewResults: false)", () => {
     vi.clearAllMocks();
     mocks.findCachedSearchProducts.mockResolvedValue(undefined);
     mocks.searchTrackedProducts.mockResolvedValue([]);
+    mocks.listActiveProductsByExternalIds.mockResolvedValue([]);
   });
 
   it("returns unsaved (id: null) results and never writes to the products table", async () => {
@@ -135,5 +139,20 @@ describe("lazy-tracking search (persistNewResults: false)", () => {
     const ids = result.products.map(product => (product as { id: number | null }).id);
     expect(ids).toContain(42); // 기존 DB 결과가 사라지지 않고 남아있는다.
     expect(result.products.some(product => product.id === null)).toBe(true); // 새 쿠팡 결과(ephemeral)도 포함된다.
+  });
+
+  // 2026-11-13: API 검색 결과의 SKU가 이미 저장(추적)돼 있으면 API 기본가·'옵션 미확인' 대신
+  // 저장된 행(수집기 가격·옵션·id)을 보여준다.
+  it("shows the stored row instead of the API base price when the SKU is already tracked", async () => {
+    const product = rawProduct(107);
+    mocks.searchCoupangProducts.mockResolvedValue([product]);
+    const stored = { id: 9107, externalProductId: getCoupangVariantKey(product), name: product.productName, currentPrice: 39_900, lowestPrice: 38_000, variantLabel: "2개", quantity: 2, source: "search" };
+    mocks.listActiveProductsByExternalIds.mockResolvedValue([stored]);
+
+    const result = await searchCatalogSafely("인덕션 로제 냄비", 10, { persistNewResults: false });
+
+    expect(mocks.listActiveProductsByExternalIds).toHaveBeenCalledWith([getCoupangVariantKey(product)]);
+    expect(result.products[0]).toMatchObject({ id: 9107, currentPrice: 39_900, variantLabel: "2개" });
+    expect(mocks.upsertCoupangProducts).not.toHaveBeenCalled();
   });
 });

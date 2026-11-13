@@ -87,6 +87,24 @@ function getCachedRawSearchResults(keyword: string): CoupangProduct[] | undefine
   return entry.results;
 }
 
+/**
+ * 2026-11-13: 쿠팡 API 검색 결과 중 이미 저장(추적)된 SKU는 API 기본가·이름 기반 옵션 대신
+ * 저장된 행(수집기 가격, 옵션, 확인 시각, id)을 그대로 쓴다. 예전에는 DB 검색이 그 행을 못
+ * 찾으면 API 기본가(예: 13,070원)와 "옵션 미확인" 카드가 나왔다. 조회 실패는 검색을 막지 않는다.
+ */
+async function preferStoredProducts(items: LazyCatalogSearchResult["products"]): Promise<LazyCatalogSearchResult["products"]> {
+  const keys = items.flatMap(item => item.id === null ? [item.externalProductId] : []);
+  if (keys.length === 0) return items;
+  try {
+    const stored = (await db.listActiveProductsByExternalIds(keys)) ?? [];
+    if (stored.length === 0) return items;
+    const byKey = new Map(stored.map(product => [product.externalProductId, product]));
+    return items.map(item => (item.id === null ? byKey.get(item.externalProductId) ?? item : item));
+  } catch {
+    return items;
+  }
+}
+
 function toEphemeralSearchProduct(keyword: string, item: CoupangProduct): EphemeralSearchProduct {
   const variant = describeProductVariant(item.productName, item.productPrice, item.categoryName ?? null);
   const familyKey = getProductFamilyKey(item.productName);
@@ -358,7 +376,7 @@ export async function searchCatalogSafely(keyword: string, limit = 10, options: 
       // 실제로 방문자가 클릭(상세 열람·찜)하기 전에는 DB에 아무것도 남기지 않는다.
       // 재검색 시 쿠팡 API를 또 부르지 않도록 원본 응답만 짧게 캐시해 둔다.
       cacheRawSearchResults(keyword, relevantResults);
-      const ephemeral: LazyCatalogSearchResult["products"] = relevantResults.map(item => toEphemeralSearchProduct(keyword, item));
+      const ephemeral: LazyCatalogSearchResult["products"] = await preferStoredProducts(relevantResults.map(item => toEphemeralSearchProduct(keyword, item)));
       if (shouldProtectTrackedExactMatch) {
         const exactTrackedMatch = await findExactTrackedMatchForForcedRefresh(keyword, limit);
         if (exactTrackedMatch && !ephemeral.some(item => item.externalProductId === exactTrackedMatch.externalProductId)) {

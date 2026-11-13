@@ -6,6 +6,7 @@ import { useFavorites } from "@/hooks/useFavorites";
 import { trpc } from "@/lib/trpc";
 import { getSearchKeywordFromLocation, getSearchLocation, loadSearchSnapshot, saveSearchSnapshot } from "@/lib/searchNavigationState";
 import { sortSearchResultProducts, type SearchResultSort } from "@/lib/searchResultSort";
+import { getSearchResultExternalIds, overlayStoredSearchProducts } from "@/lib/searchResultFreshness";
 import { useLocation } from "wouter";
 
 function formatRetryTime(value?: Date | string | null) {
@@ -46,7 +47,11 @@ export default function SearchProducts() {
   const suggestions = trpc.catalog.suggestions.useQuery(suggestionInput, { enabled: suggestionOpen && suggestionInput.query.length >= 2, staleTime: 30_000 });
   const { favoriteIds, toggleProduct } = useFavorites();
   const searchResult = search.data ?? restoredSearch;
-  const displayedProducts = useMemo(() => sortSearchResultProducts(searchResult?.products ?? [], resultSort), [searchResult?.products, resultSort]);
+  // 2026-11-13: 보관해 둔 검색 결과(뒤로 가기 복원 등)는 그 사이 저장·수집된 최신 가격·옵션으로 덮어쓴다.
+  const resultExternalIds = useMemo(() => getSearchResultExternalIds(searchResult?.products ?? []), [searchResult?.products]);
+  const currentProducts = trpc.catalog.currentProducts.useQuery({ externalProductIds: resultExternalIds }, { enabled: resultExternalIds.length > 0, staleTime: 0, refetchOnMount: "always" });
+  const freshProducts = useMemo(() => overlayStoredSearchProducts(searchResult?.products ?? [], currentProducts.data ?? []), [searchResult?.products, currentProducts.data]);
+  const displayedProducts = useMemo(() => sortSearchResultProducts(freshProducts, resultSort), [freshProducts, resultSort]);
   const searchRateLimitReason = searchResult?.source === "rate_limited" ? searchResult.limitReason : (!searchStatus.data?.allowed ? searchStatus.data?.reason : undefined);
   const searchRetryTime = formatRetryTime(searchResult?.source === "rate_limited" ? searchResult.retryAt : searchStatus.data?.retryAt);
   const isSearchRateLimited = searchResult?.source === "rate_limited" || searchStatus.data?.allowed === false;
