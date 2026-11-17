@@ -16,6 +16,7 @@ import { registerCollectionRoutes } from "../collectionRoutes";
 import { registerWebPushConfigRoutes } from "../webPushConfigRoutes";
 import { registerExternalPriceRefreshRoute, registerExternalFavoritesRefreshRoute } from "../externalPriceRefresh";
 import { buildProductSitemapXml, buildSitemapIndexXml, buildStaticSitemapXml } from "../seoSitemap";
+import { getIndexableDealPaths } from "../dealsQueries";
 import { registerImageProxy } from "../imageProxy";
 import { registerLighthouseAuditRoute } from "../lighthouseAudit";
 
@@ -85,8 +86,8 @@ async function startServer() {
   app.get("/sitemap.xml", async (_req, res) => {
     res.type("application/xml").set("Cache-Control", "public, max-age=300").send(buildSitemapIndexXml());
   });
-  app.get("/sitemap-static.xml", (_req, res) => {
-    res.type("application/xml").set("Cache-Control", "public, max-age=300").send(buildStaticSitemapXml());
+  app.get("/sitemap-static.xml", async (_req, res) => {
+    res.type("application/xml").set("Cache-Control", "public, max-age=300").send(buildStaticSitemapXml(new Date(), await getIndexableDealPaths()));
   });
   app.get("/sitemap-products-1.xml", async (_req, res, next) => {
     try {

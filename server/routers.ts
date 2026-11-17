@@ -4,6 +4,7 @@ import { z } from "zod";
 import { getMyGoodViaMonth, recordGoodViaFromRequest } from "./goodVia";
 import { donationLedgerInput, listPublicDonationEntries, saveDonationLedgerEntry } from "./give";
 import { listDonationLedgerEntries } from "./db";
+import { listDeals } from "./dealsQueries";
 import {
   getProductCandidateForUser,
   getPublicServiceStats,
@@ -221,6 +222,9 @@ export const appRouter = router({
     list: publicProcedure
       .input(z.object({ source: z.enum(["goldbox", "search", "bestcategory", "collection"]).optional(), limit: z.number().int().min(1).max(100).optional() }).optional())
       .query(({ input }) => listProducts(input)),
+    deals: publicProcedure
+      .input(z.object({ kind: z.enum(["drops", "low"]) }))
+      .query(({ input }) => listDeals(input.kind)),
     product: publicProcedure
       .input(z.object({ productId: z.number().int().positive() }))
       .query(async ({ input }) => {

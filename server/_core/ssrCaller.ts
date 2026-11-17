@@ -11,6 +11,7 @@ export async function buildSsrPrefetch(req: Request, res: Response): Promise<Ssr
     homeFeatured: input => caller.catalog.homeFeatured(input),
     listProducts: input => caller.catalog.list(input),
     hotDeals: () => caller.hotDeals.list(),
+    deals: input => caller.catalog.deals(input),
     product: input => caller.catalog.product(input),
     collectedPriceHistory: input => caller.catalog.collectedPriceHistory(input),
     relatedVariants: input => caller.catalog.relatedVariants(input),

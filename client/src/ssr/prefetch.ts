@@ -2,7 +2,7 @@ import type { QueryClient } from "@tanstack/react-query";
 import { getQueryKey } from "@trpc/react-query";
 import { TRPCError } from "@trpc/server";
 import { trpc } from "@/lib/trpc";
-import { getPageMeta, getProductPageMeta, SITE_OG_IMAGE } from "@/lib/seoMeta";
+import { buildDealsItemListSchema, getPageMeta, getProductPageMeta, SITE_OG_IMAGE } from "@/lib/seoMeta";
 
 export type HeadMeta = {
   title: string;
@@ -20,6 +20,7 @@ export type SsrPrefetch = {
   homeFeatured: (input: { limit: number }) => Promise<unknown>;
   listProducts: (input: { source?: "goldbox" | "search" | "bestcategory" | "collection"; limit?: number }) => Promise<unknown>;
   hotDeals: () => Promise<unknown>;
+  deals: (input: { kind: "drops" | "low" }) => Promise<unknown>;
   product: (input: { productId: number }) => Promise<unknown>;
   collectedPriceHistory: (input: { productId: number }) => Promise<unknown>;
   relatedVariants: (input: { productId: number }) => Promise<unknown>;
@@ -30,7 +31,7 @@ async function seed(queryClient: QueryClient, key: unknown, data: unknown) {
 }
 
 function knownPath(path: string) {
-  return path === "/" || path === "/guide" || path === "/methodology" || path === "/give" || path === "/goldbox" || path === "/hot-deals" || path === "/favorites" || path === "/search" || /^\/product\/\d+$/.test(path) || path === "/admin" || path.startsWith("/admin/");
+  return path === "/" || path === "/guide" || path === "/methodology" || path === "/give" || path === "/goldbox" || path === "/hot-deals" || /^\/deals\/(drops|low)$/.test(path) || path === "/favorites" || path === "/search" || /^\/product\/\d+$/.test(path) || path === "/admin" || path.startsWith("/admin/");
 }
 
 export function normalizeSsrPath(url: string) {
@@ -73,6 +74,17 @@ export async function prefetchForPath(url: string, queryClient: QueryClient, pre
   if (path === "/hot-deals") {
     const deals = await prefetch.hotDeals();
     await seed(queryClient, getQueryKey(trpc.hotDeals.list, undefined, "query"), deals);
+  }
+
+  const dealsMatch = path.match(/^\/deals\/(drops|low)$/);
+  if (dealsMatch) {
+    const input = { kind: dealsMatch[1] as "drops" | "low" };
+    const deals = await prefetch.deals(input);
+    await seed(queryClient, getQueryKey(trpc.catalog.deals, input, "query"), deals);
+    const record = deals as { items?: Array<{ product: { id: number; name: string } }>; indexable?: boolean };
+    const items = (record.items ?? []).map(item => ({ id: item.product.id, name: item.product.name }));
+    // 목록이 충분하지 않으면 얇은 페이지가 색인되지 않도록 noindex로 응답한다.
+    return { ...pageMeta, canonicalPath: path, ogImage: SITE_OG_IMAGE, noindex: !record.indexable, structuredData: [buildDealsItemListSchema(items)] } as HeadMeta;
   }
 
   const productMatch = path.match(/^\/product\/(\d+)$/);

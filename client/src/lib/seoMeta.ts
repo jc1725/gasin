@@ -62,6 +62,8 @@ export function getPageMeta(path: string): PageMeta {
   if (path === "/give" || path.startsWith("/give/")) return { title: "GASIN GIVE 기부 기준·내역 | 가신", description: `${GIVE_PROMISE} 기부 기준과 정산 일정, 월별 기부 내역을 확인하세요.`, socialTitle: "쿠팡 가기 전, 가신 한번 | GASIN GIVE", socialDescription: GIVE_PROMISE };
   if (path.startsWith("/guide")) return { title: "쿠팡 와우회원가·가격 알림 가이드 | 가신", description: "쿠팡 와우회원가 확인, 같은 상품 옵션 비교, 가격 변동 알림 방법을 가신 가이드에서 확인하세요.", socialTitle: "가격을 있는 그대로 믿지 마세요 | 가신 가이드", socialDescription: "와우회원가, 할인율, 옵션별 가격 이력까지 비교해 진짜 가격 흐름을 확인하세요." };
   if (path.startsWith("/goldbox")) return { title: "쿠팡 골드박스 가격 추적 | 가신", description: "가신에서 쿠팡 골드박스 상품과 가격 흐름을 확인하세요.", socialTitle: "골드박스 가격도 이력으로 비교하세요 | 가신", socialDescription: "쿠팡 골드박스 상품의 가격 흐름을 가신에서 확인하세요." };
+  if (path === "/deals/drops") return { title: "쿠팡 가격 내린 상품 (최근 7일) | 가신", description: "가신이 수집한 가격 이력에서 최근 7일 안에 가격이 내려간 쿠팡 상품을 모았습니다. 이전가와 현재가, 마지막 관측 시각을 함께 확인하세요.", socialTitle: "이번 주 쿠팡에서 가격이 내려간 상품 | 가신", socialDescription: "최근 7일 가격 이력 기준으로 가격이 내려간 쿠팡 상품을 확인하세요." };
+  if (path === "/deals/low") return { title: "쿠팡 90일 가격 저점 근접 상품 | 가신", description: "현재가가 90일 관측 가격 이력의 가장 낮은 가격 근처인 쿠팡 상품 목록입니다. 최근 관측 기준이며 결제 전 쿠팡에서 최종 가격을 확인하세요.", socialTitle: "90일 가격 이력으로 보는 저점 근접 상품 | 가신", socialDescription: "90일 가격 이력에서 저점 근처에 있는 쿠팡 상품을 확인하세요." };
   if (path.startsWith("/hot-deals")) return { title: "특가 상품 | 가신", description: "가신이 소개하는 기간 한정 특가 상품을 확인하세요.", socialTitle: "기간 한정 특가를 확인하세요 | 가신", socialDescription: "가신이 소개하는 특가 상품과 판매 조건을 확인하세요." };
   if (path.startsWith("/favorites")) return { title: "찜한 상품 가격 알림 | 가신", description: "찜한 상품의 목표가와 최근 가격 관측을 관리하세요.", socialTitle: "원하는 가격에 알려주는 가신", socialDescription: "찜한 상품의 목표가와 최근 가격 흐름을 관리하세요." };
   if (path.startsWith("/search")) return { title: "쿠팡 상품 가격 검색 | 가신", description: "상품명과 옵션·용량·수량으로 쿠팡 상품 가격 흐름을 검색하세요.", socialTitle: "같은 옵션인지 먼저 확인하세요 | 가신", socialDescription: "상품명과 옵션·용량·수량을 기준으로 가격 흐름을 검색하세요." };
@@ -69,13 +71,24 @@ export function getPageMeta(path: string): PageMeta {
   return { title: "가신 | 쿠팡 가격 추적", description: "쿠팡 상품의 옵션별 가격 흐름과 최근 수집 관측가를 기록하는 가신 가격 추적 서비스입니다.", socialTitle: "쿠팡 가격, 있는 그대로 믿지 마세요 | 가신", socialDescription: "와우회원가와 옵션별 가격 이력을 비교해 진짜 가격 흐름을 확인하세요." };
 }
 
+/** /deals/* 목록 JSON-LD. 화면에 실제로 표시되는 상품과 같은 목록만 담는다. */
+export function buildDealsItemListSchema(items: Array<{ id: number; name: string }>) {
+  return {
+    "@context": "https://schema.org",
+    "@type": "ItemList",
+    itemListOrder: "https://schema.org/ItemListUnordered",
+    numberOfItems: items.length,
+    itemListElement: items.map((item, index) => ({ "@type": "ListItem", position: index + 1, url: `${SITE_URL}/product/${item.id}`, name: cleanProductName(item.name) })),
+  };
+}
+
 export function getStructuredDataForPath(path: string, pageData?: object[]): object[] {
   const baseSchemas = [siteOrganizationSchema, siteWebApplicationSchema];
-  const labels: Record<string, string> = { "/guide": "가격 가이드", "/methodology": "가격 검증 방법", "/goldbox": "골드박스" };
+  const labels: Record<string, string> = { "/guide": "가격 가이드", "/methodology": "가격 검증 방법", "/goldbox": "골드박스", "/deals/drops": "가격 내린 상품", "/deals/low": "가격 저점 근접 상품" };
   const matchedPath = Object.keys(labels).find(candidate => path === candidate || path.startsWith(`${candidate}/`));
   const breadcrumb = matchedPath ? { "@context": "https://schema.org", "@type": "BreadcrumbList", itemListElement: [{ "@type": "ListItem", position: 1, name: "가신", item: `${SITE_URL}/` }, { "@type": "ListItem", position: 2, name: labels[matchedPath], item: `${SITE_URL}${matchedPath}` }] } : null;
   if (path.startsWith("/methodology")) return [...baseSchemas, methodologyWebPageSchema, buildMethodologyFaqSchema(), ...(breadcrumb ? [breadcrumb] : [])];
   if (path.startsWith("/guide")) return [...baseSchemas, buildGuideFaqSchema(), ...(breadcrumb ? [breadcrumb] : [])];
-  if (path.startsWith("/goldbox")) return [...baseSchemas, ...(breadcrumb ? [breadcrumb] : []), ...(pageData ?? [])];
+  if (path.startsWith("/goldbox") || path.startsWith("/deals/")) return [...baseSchemas, ...(breadcrumb ? [breadcrumb] : []), ...(pageData ?? [])];
   return pageData?.length ? [...baseSchemas, ...pageData] : baseSchemas;
 }

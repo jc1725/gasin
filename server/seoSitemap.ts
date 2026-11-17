@@ -29,8 +29,9 @@ function urlEntry(path: string, lastmod: Date | string | null | undefined) {
   return `<url><loc>${XML_ESCAPE(`${SITE_ORIGIN}${path}`)}</loc><lastmod>${dateOnly(lastmod)}</lastmod></url>`;
 }
 
-export function buildStaticSitemapXml(now = new Date()) {
-  return `<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${STATIC_PATHS.map(path => urlEntry(path, now)).join("")}</urlset>`;
+/** extraPaths: 조건부로만 넣는 정적 경로(예: 목록이 충분한 /deals/*). */
+export function buildStaticSitemapXml(now = new Date(), extraPaths: readonly string[] = []) {
+  return `<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${[...STATIC_PATHS, ...extraPaths].map(path => urlEntry(path, now)).join("")}</urlset>`;
 }
 
 export async function buildProductSitemapXml() {
