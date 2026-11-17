@@ -158,6 +158,16 @@ function matchesOptionToken(token: string, product: SearchableProduct, normalize
 }
 
 /** 같은 제품군을 뜻하는 쿠팡 상품명 표기 변형을 관련도 비교에 함께 사용합니다. */
+/**
+ * 2026-11-17: "정관장" 검색 결과 없음 — 쿠팡 파트너스 API는 정관장 상품명을 "에브리타임 소프트 10ml X 30포"
+ * 처럼 브랜드 없이 돌려준다. 그래서 브랜드만 검색하면 관련도 필터가 쿠팡이 찾은 결과를 전부 "무관"으로
+ * 걸러 0건이 됐다. 브랜드 이름이 상품명에 거의 붙지 않는 브랜드는, 그 브랜드에만 쓰이는 대표 제품군
+ * 이름도 같은 브랜드로 인정한다. 다른 회사도 쓰는 일반 명칭(예: 홍삼정)은 넣지 않는다.
+ */
+const BRAND_PRODUCT_LINES: Record<string, string[]> = {
+  정관장: ["에브리타임", "화애락", "홍이장군", "아이패스", "굿베이스", "홍삼톤", "황진단", "천녹"],
+};
+
 export function getSearchTokenVariants(token: string) {
   const normalized = normalize(token);
   const stripped = stripBrandSuffix(normalized);
@@ -165,6 +175,7 @@ export function getSearchTokenVariants(token: string) {
   return Array.from(new Set([
     ...base,
     ...base.flatMap(item => SEARCH_TOKEN_EQUIVALENTS[item] ?? []),
+    ...base.flatMap(item => BRAND_PRODUCT_LINES[item] ?? []),
   ]));
 }
 

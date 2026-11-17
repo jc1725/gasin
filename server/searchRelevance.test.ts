@@ -333,3 +333,23 @@ describe("옵션(variantLabel·packSize)에만 있는 검색어 (2026-11-04 '슈
     expect(rankSearchResults("좋은느낌 슈퍼롱", [night])).toEqual([]);
   });
 });
+
+
+describe("브랜드 없이 오는 쿠팡 상품명 (2026-11-17 '정관장 검색 결과 없음')", () => {
+  const everytime = { name: "에브리타임 소프트 10ml X 30포 + 쇼핑백", isRocket: true };
+  const hwaaerak = { name: "화애락 본 70ml x 30포", isRocket: true };
+  const otherRedGinseng = { name: "한삼인 홍삼정 240g", isRocket: true };
+
+  it("'정관장' 검색에서 브랜드가 빠진 정관장 대표 제품군 상품을 관련 결과로 인정한다", () => {
+    expect(rankSearchResults("정관장", [everytime, hwaaerak]).map(product => product.name)).toEqual([everytime.name, hwaaerak.name]);
+    expect(hasFullKeywordMatch("정관장", [everytime])).toBe(true);
+  });
+
+  it("다른 회사도 쓰는 일반 명칭(홍삼정)만 있는 상품은 정관장으로 보지 않는다", () => {
+    expect(rankSearchResults("정관장", [otherRedGinseng])).toEqual([]);
+  });
+
+  it("'정관장 에브리타임'처럼 제품군을 함께 쓴 검색도 그대로 찾는다", () => {
+    expect(rankSearchResults("정관장 에브리타임", [everytime])).toEqual([everytime]);
+  });
+});
