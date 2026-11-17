@@ -40,10 +40,15 @@ describe("evaluateDrop", () => {
     expect(evaluateDrop(stats({ currentPrice: 9500, max7: 10000 }))).toEqual({ referencePrice: 10000, changePct: 5 });
   });
 
-  it("500원 미만, 5% 미만, 70% 초과 하락은 제외한다", () => {
+  it("500원 미만, 5% 미만, 60% 초과 하락은 제외한다", () => {
     expect(evaluateDrop(stats({ currentPrice: 4600, max7: 5000 }))).toBeNull();
     expect(evaluateDrop(stats({ currentPrice: 97000, max7: 100000 }))).toBeNull();
     expect(evaluateDrop(stats({ currentPrice: 2000, max7: 10000 }))).toBeNull();
+  });
+
+  it("60%는 포함하고 60%를 넘으면 제외한다(경계값)", () => {
+    expect(evaluateDrop(stats({ currentPrice: 4000, max7: 10000 }))).toEqual({ referencePrice: 10000, changePct: 60 });
+    expect(evaluateDrop(stats({ currentPrice: 3900, max7: 10000 }))).toBeNull();
   });
 
   it("가격이 오르거나 같으면, 7일 내 기록이 없으면, 기록이 3건 미만이면 제외한다", () => {
@@ -64,7 +69,7 @@ describe("evaluateLowZone", () => {
     expect(evaluateLowZone(stats({ points: 2 }))).toBeNull();
   });
 
-  it("고점 대비 70% 초과 하락은 데이터 오류로 보고 제외한다", () => {
+  it("고점 대비 60% 초과 하락은 데이터 오류로 보고 제외한다", () => {
     expect(evaluateLowZone(stats({ currentPrice: 2000, min90: 2000, max90: 10000 }))).toBeNull();
   });
 });

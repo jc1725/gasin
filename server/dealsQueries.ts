@@ -48,10 +48,11 @@ export const DEALS_FRESH_WINDOW_MS = 48 * 60 * 60 * 1000;
 export const DEALS_DROP_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 export const DEALS_HISTORY_WINDOW_MS = 90 * 24 * 60 * 60 * 1000;
 export const DEALS_MIN_POINTS = 3;
-/** 하락 폭 조건: 5% 이상, 500원 이상. 70% 초과는 옵션 오인식·와우가 혼입 등 데이터 오류일 가능성이 커서 뺀다. */
+/** 하락 폭 조건: 5% 이상, 500원 이상. 60% 초과는 옵션 오인식·와우가 혼입 등 데이터 오류일 가능성이 커서 뺀다. */
 export const DEALS_MIN_DROP_PCT = 5;
 export const DEALS_MIN_DROP_WON = 500;
-export const DEALS_MAX_DROP_PCT = 70;
+/** drops·low 공통 상한. 하락률이 이보다 크면 데이터 오류로 보고 제외한다(2026-11-17: 70% → 60%). */
+export const DEALS_MAX_DROP_PCT = 60;
 /** 저점 근접 조건: 현재가가 90일 최저 관측가의 5% 이내이고, 90일 안에 최저 대비 10% 이상 변동한 이력이 있을 것. */
 export const DEALS_LOW_NEAR_RATIO = 1.05;
 export const DEALS_LOW_MIN_RANGE_RATIO = 1.1;
