@@ -155,4 +155,18 @@ describe("lazy-tracking search (persistNewResults: false)", () => {
     expect(result.products[0]).toMatchObject({ id: 9107, currentPrice: 39_900, variantLabel: "2개" });
     expect(mocks.upsertCoupangProducts).not.toHaveBeenCalled();
   });
+  // 2026-11-13: "정관장으로 입력하면 쿠팡에서 검색을 안함" — 저장 상품이 limit 이상이어도
+  // 사용자 검색은 쿠팡을 함께 조회하고, 저장 결과 뒤에 쿠팡 결과를 잘리지 않게 붙인다.
+  it("queries Coupang for a user search even when stored matches already fill the limit", async () => {
+    const stored = Array.from({ length: 10 }, (_, index) => ({ id: 500 + index, name: `정관장 홍삼정 저장 상품 ${index}`, externalProductId: `${500 + index}:1:2`, currentPrice: 10_000 + index, lowestPrice: 10_000, inStock: true }));
+    mocks.searchTrackedProducts.mockResolvedValue(stored);
+    mocks.searchCoupangProducts.mockResolvedValue([{ ...rawProduct(601), productName: "정관장 홍삼정 에브리타임 10ml 30포" }]);
+
+    const result = await searchCatalogSafely("정관장 홍삼정", 10, { persistNewResults: false });
+
+    expect(mocks.findCachedSearchProducts).not.toHaveBeenCalled();
+    expect(mocks.searchCoupangProducts).toHaveBeenCalledTimes(1);
+    expect(result.source).toBe("coupang");
+    expect(result.products.some(product => product.id === null && product.name.includes("에브리타임"))).toBe(true);
+  });
 });

@@ -262,9 +262,14 @@ export async function searchCatalogSafely(keyword: string, limit: number | undef
 export async function searchCatalogSafely(keyword: string, limit = 10, options: SearchCatalogOptions & { persistNewResults?: boolean } = {}): Promise<CatalogSearchResult | LazyCatalogSearchResult> {
   const callType = options.callType ?? "product-search";
   const persistNewResults = options.persistNewResults ?? true;
+  // 2026-11-13: 방문자가 검색창에 입력한 검색(지연 등록 모드의 사용자 검색)은 항상 쿠팡 최신
+  // 검색 결과를 함께 확인한다. 예전에는 "정관장"처럼 저장 상품이 10개 이상 있는 검색어나
+  // 12시간 검색 캐시가 있는 검색어는 저장 결과만 보여주고 쿠팡을 아예 부르지 않았다.
+  // 같은 검색어 반복은 20분 원본 캐시(rawSearchResultCache)가 흡수해 호출이 늘지 않는다.
+  const preferLiveSearch = !persistNewResults && callType === "product-search";
   let databaseFallback: CatalogSearchResult["products"] = [];
   if (!options.forceExternal) {
-    const cached = await db.findCachedSearchProducts(keyword);
+    const cached = preferLiveSearch ? undefined : await db.findCachedSearchProducts(keyword);
     if (cached !== undefined) {
       const rankedCached = removeExcludedTrackingProducts(filterStableDeliveryResults(rankSearchResults(keyword, cached), keyword));
       const cacheIsUsable = rankedCached.length > 0 && hasUsableStoredPrice(rankedCached);
@@ -308,7 +313,7 @@ export async function searchCatalogSafely(keyword: string, limit = 10, options: 
     // 다른 옵션(예: 비타라온 35ml 2개)이 영영 검색에 나오지 않는다.
     const dedupedDatabaseMatches = dedupeKeepingOptions(rankedDatabaseMatches);
     const hasSufficientStoredCoverage = dedupedDatabaseMatches.length >= limit;
-    if (hasSufficientStoredCoverage && hasUsableStoredPrice(rankedDatabaseMatches)) {
+    if (!preferLiveSearch && hasSufficientStoredCoverage && hasUsableStoredPrice(rankedDatabaseMatches)) {
       return { products: dedupedDatabaseMatches, source: "database", message: "가격 추적 목록에서 찾은 결과입니다." };
     }
     // 저장 결과가 요청 개수(limit)에 못 미치면 공식 API로 즉시 보완한다. API가 결과를
@@ -395,7 +400,8 @@ export async function searchCatalogSafely(keyword: string, limit = 10, options: 
       // 같은 상품이 용량은 같고 수량(묶음 개수)만 다른 카드로 여러 개 나오는 걸 막기
       // 위해, 실제로 저장하기 전인 이 단계에서도 상품군당 하나만 남긴다. DB 결과를
       // 먼저 두므로 동률(같은 상품군·같은 단위)이면 실제 id가 있는 DB 항목이 남는다.
-      const dedupedCombined = dedupeKeepingOptions(combined).slice(0, limit);
+      // 사용자 검색은 저장 결과가 이미 limit만큼 있어도 쿠팡 결과가 잘리지 않도록 최대 2배까지 보여준다.
+      const dedupedCombined = dedupeKeepingOptions(combined).slice(0, preferLiveSearch ? limit * 2 : limit);
       if (dedupedCombined.length === 0 && callType === "product-search") await db.recordMissingSearch(keyword);
       return {
         products: dedupedCombined,
@@ -460,6 +466,11 @@ export async function searchCatalogSafely(keyword: string, limit = 10, options: 
       const isUserSearch = callType === "product-search";
       await db.recordCoupangRateLimitEvent(isUserSearch ? "search" : "price", error.reason, error.retryAt);
       if (isUserSearch) void notifySearchQuotaExceeded({ reason: error.reason, retryAt: error.retryAt });
+      // 사용자 검색이 보호 모드에 걸려도 저장된 결과가 있으면 빈 화면 대신 그 결과를 보여준다
+      // (예전에는 저장 결과가 충분한 검색어는 쿠팡을 부르지 않아 이 상황 자체가 없었다).
+      if (preferLiveSearch && databaseFallback.length > 0) {
+        return { products: databaseFallback, source: "database", message: "쿠팡 API 보호 모드라 가격 추적 목록의 저장 결과만 표시합니다." };
+      }
       return {
         products: [],
         source: "rate_limited",
