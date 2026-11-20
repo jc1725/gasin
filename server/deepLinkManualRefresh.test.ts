@@ -59,6 +59,8 @@ describe("관리자 단건 딥링크 갱신", () => {
     mocks.searchCatalogSafely.mockResolvedValue({ source: "rate_limited", products: [], retryAt });
 
     await expect(refreshDeepLinkForExactSku(41)).resolves.toMatchObject({ status: "rate_limited", message: expect.stringContaining("다시 시도") });
+    // 2026-11-20: 서버(UTC)에서도 재시도 시각을 한국 시각으로 안내한다(02:00 UTC → 오전 11:00 KST).
+    await expect(refreshDeepLinkForExactSku(41)).resolves.toMatchObject({ message: expect.stringContaining("2026. 8. 27. 오전 11:00:00") });
     expect(mocks.generatePendingDeepLinkForProduct).not.toHaveBeenCalled();
   });
 

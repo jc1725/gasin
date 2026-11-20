@@ -26,7 +26,7 @@ export async function refreshDeepLinkForExactSku(productId: number): Promise<Man
   if (result.source === "rate_limited") {
     return {
       status: "rate_limited",
-      message: `쿠팡 API 보호 모드입니다. ${result.retryAt ? `${result.retryAt.toLocaleString("ko-KR")} 이후` : "잠시 후"} 다시 시도해 주세요.`,
+      message: `쿠팡 API 보호 모드입니다. ${result.retryAt ? `${result.retryAt.toLocaleString("ko-KR", { timeZone: "Asia/Seoul" })} 이후` : "잠시 후"} 다시 시도해 주세요.`,
     };
   }
 
