@@ -49,6 +49,7 @@ import { buildAlertObservationStatus, type AlertObservationStatus } from "./exte
 import { classifyMissingSearch } from "./searchFailureClassification";
 import { isExcludedTrackingCategory, getExcludedTrackingCategory, EXCLUDED_TRACKING_CATEGORY_LABEL, EXCLUDED_BEST_CATEGORY_IDS } from "./categoryEligibility";
 import { buildCollectorProductMetadata, hasMissingCollectorMetadata } from "./collectorMetadata";
+import { resolveUpsertSource } from "./productSourcePrecedence";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
@@ -1579,7 +1580,9 @@ export async function upsertCoupangProduct(product: CoupangProduct, source: Prod
     // 것 자체가 지금 이 시점의 재고 상태를 나타내므로(재고가 없으면 보통 가격이
     // 비거나 상품이 아예 응답에서 빠짐) currentPrice > 0이면 재입고로 간주한다.
     inStock: currentPrice > 0,
-    source,
+    // 2026-11-20: 활성 골드박스·카테고리 베스트 상품이 검색 재확인 결과로 "search"가 되어
+    // 골드박스 화면에서 빠지던 문제. server/productSourcePrecedence.ts 참고.
+    source: resolveUpsertSource(existing, source),
     isRocket: Boolean(product.isRocket),
     isFreeShipping: Boolean(product.isFreeShipping),
     isActive: true,
@@ -1670,6 +1673,20 @@ export async function deactivateStaleProductsForSource(source: ProductSource, fr
   const db = await getDb();
   if (!db) return { deactivatedCount: 0 };
   const freshSet = freshExternalProductIds.length > 0 ? freshExternalProductIds : ["__none__"];
+  if (source === "goldbox") {
+    // 2026-11-20: 골드박스 소속은 검색·카테고리 베스트 갱신으로 덮어쓰지 않게 됐다(resolveUpsertSource).
+    // 그래서 어제 골드박스였던 상품이 지금 카테고리 베스트 목록에도 올라 있으면, 숨기지 말고
+    // 카테고리 베스트 소속으로 넘긴다(홈 카테고리 베스트 카드에서 사라지지 않게).
+    await db
+      .update(products)
+      .set({ source: "bestcategory" })
+      .where(and(
+        eq(products.source, "goldbox"),
+        eq(products.isActive, true),
+        notInArray(products.externalProductId, freshSet),
+        inArray(products.id, db.select({ productId: categoryBestProducts.productId }).from(categoryBestProducts)),
+      ));
+  }
   const result = await db
     .update(products)
     .set({ isActive: false, deactivatedAt: new Date() })
