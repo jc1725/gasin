@@ -21,6 +21,7 @@ export type SsrPrefetch = {
   listProducts: (input: { source?: "goldbox" | "search" | "bestcategory" | "collection"; limit?: number }) => Promise<unknown>;
   hotDeals: () => Promise<unknown>;
   deals: (input: { kind: "drops" | "low" }) => Promise<unknown>;
+  unitPrice: () => Promise<unknown>;
   product: (input: { productId: number }) => Promise<unknown>;
   collectedPriceHistory: (input: { productId: number }) => Promise<unknown>;
   relatedVariants: (input: { productId: number }) => Promise<unknown>;
@@ -31,7 +32,7 @@ async function seed(queryClient: QueryClient, key: unknown, data: unknown) {
 }
 
 function knownPath(path: string) {
-  return path === "/" || path === "/guide" || path === "/methodology" || path === "/give" || path === "/goldbox" || path === "/hot-deals" || /^\/deals\/(drops|low)$/.test(path) || path === "/favorites" || path === "/search" || /^\/product\/\d+$/.test(path) || path === "/admin" || path.startsWith("/admin/");
+  return path === "/" || path === "/guide" || path === "/methodology" || path === "/give" || path === "/goldbox" || path === "/hot-deals" || /^\/deals\/(drops|low)$/.test(path) || path === "/unit-price" || path === "/favorites" || path === "/search" || /^\/product\/\d+$/.test(path) || path === "/admin" || path.startsWith("/admin/");
 }
 
 export function normalizeSsrPath(url: string) {
@@ -84,6 +85,15 @@ export async function prefetchForPath(url: string, queryClient: QueryClient, pre
     const record = deals as { items?: Array<{ product: { id: number; name: string } }>; indexable?: boolean };
     const items = (record.items ?? []).map(item => ({ id: item.product.id, name: item.product.name }));
     // 목록이 충분하지 않으면 얇은 페이지가 색인되지 않도록 noindex로 응답한다.
+    return { ...pageMeta, canonicalPath: path, ogImage: SITE_OG_IMAGE, noindex: !record.indexable, structuredData: [buildDealsItemListSchema(items)] } as HeadMeta;
+  }
+
+  if (path === "/unit-price") {
+    const result = await prefetch.unitPrice();
+    await seed(queryClient, getQueryKey(trpc.catalog.unitPrice, undefined, "query"), result);
+    const record = result as { groups?: Array<{ options: Array<{ productId: number; name: string }> }>; indexable?: boolean };
+    // 화면에 보이는 각 그룹의 단가 최저 옵션만 ItemList에 담는다.
+    const items = (record.groups ?? []).flatMap(group => (group.options[0] ? [{ id: group.options[0].productId, name: group.options[0].name }] : []));
     return { ...pageMeta, canonicalPath: path, ogImage: SITE_OG_IMAGE, noindex: !record.indexable, structuredData: [buildDealsItemListSchema(items)] } as HeadMeta;
   }
 

@@ -64,6 +64,7 @@ export function getPageMeta(path: string): PageMeta {
   if (path.startsWith("/goldbox")) return { title: "쿠팡 골드박스 가격 추적 | 가신", description: "가신에서 쿠팡 골드박스 상품과 가격 흐름을 확인하세요.", socialTitle: "골드박스 가격도 이력으로 비교하세요 | 가신", socialDescription: "쿠팡 골드박스 상품의 가격 흐름을 가신에서 확인하세요." };
   if (path === "/deals/drops") return { title: "쿠팡 가격 내린 상품 (최근 7일) | 가신", description: "가신이 수집한 가격 이력에서 최근 7일 안에 가격이 내려간 쿠팡 상품을 모았습니다. 이전가와 현재가, 마지막 관측 시각을 함께 확인하세요.", socialTitle: "이번 주 쿠팡에서 가격이 내려간 상품 | 가신", socialDescription: "최근 7일 가격 이력 기준으로 가격이 내려간 쿠팡 상품을 확인하세요." };
   if (path === "/deals/low") return { title: "쿠팡 90일 가격 저점 근접 상품 | 가신", description: "현재가가 90일 관측 가격 이력의 가장 낮은 가격 근처인 쿠팡 상품 목록입니다. 최근 관측 기준이며 결제 전 쿠팡에서 최종 가격을 확인하세요.", socialTitle: "90일 가격 이력으로 보는 저점 근접 상품 | 가신", socialDescription: "90일 가격 이력에서 저점 근처에 있는 쿠팡 상품을 확인하세요." };
+  if (path === "/unit-price") return { title: "쿠팡 용량별 단가 비교 | 가신", description: "같은 상품의 용량·수량별 구성을 100g·10ml 같은 같은 기준 단가로 비교했습니다. 큰 포장이 항상 단가가 낮은 것은 아닙니다. 최근 관측 기준이며 결제 전 쿠팡에서 최종 가격을 확인하세요.", socialTitle: "큰 포장이 항상 더 쌀까? 용량별 단가 비교 | 가신", socialDescription: "같은 상품의 용량·수량별 단가를 같은 기준으로 비교해 보세요." };
   if (path.startsWith("/hot-deals")) return { title: "특가 상품 | 가신", description: "가신이 소개하는 기간 한정 특가 상품을 확인하세요.", socialTitle: "기간 한정 특가를 확인하세요 | 가신", socialDescription: "가신이 소개하는 특가 상품과 판매 조건을 확인하세요." };
   if (path.startsWith("/favorites")) return { title: "찜한 상품 가격 알림 | 가신", description: "찜한 상품의 목표가와 최근 가격 관측을 관리하세요.", socialTitle: "원하는 가격에 알려주는 가신", socialDescription: "찜한 상품의 목표가와 최근 가격 흐름을 관리하세요." };
   if (path.startsWith("/search")) return { title: "쿠팡 상품 가격 검색 | 가신", description: "상품명과 옵션·용량·수량으로 쿠팡 상품 가격 흐름을 검색하세요.", socialTitle: "같은 옵션인지 먼저 확인하세요 | 가신", socialDescription: "상품명과 옵션·용량·수량을 기준으로 가격 흐름을 검색하세요." };
@@ -84,11 +85,11 @@ export function buildDealsItemListSchema(items: Array<{ id: number; name: string
 
 export function getStructuredDataForPath(path: string, pageData?: object[]): object[] {
   const baseSchemas = [siteOrganizationSchema, siteWebApplicationSchema];
-  const labels: Record<string, string> = { "/guide": "가격 가이드", "/methodology": "가격 검증 방법", "/goldbox": "골드박스", "/deals/drops": "가격 내린 상품", "/deals/low": "가격 저점 근접 상품" };
+  const labels: Record<string, string> = { "/guide": "가격 가이드", "/methodology": "가격 검증 방법", "/goldbox": "골드박스", "/deals/drops": "가격 내린 상품", "/deals/low": "가격 저점 근접 상품", "/unit-price": "용량별 단가 비교" };
   const matchedPath = Object.keys(labels).find(candidate => path === candidate || path.startsWith(`${candidate}/`));
   const breadcrumb = matchedPath ? { "@context": "https://schema.org", "@type": "BreadcrumbList", itemListElement: [{ "@type": "ListItem", position: 1, name: "가신", item: `${SITE_URL}/` }, { "@type": "ListItem", position: 2, name: labels[matchedPath], item: `${SITE_URL}${matchedPath}` }] } : null;
   if (path.startsWith("/methodology")) return [...baseSchemas, methodologyWebPageSchema, buildMethodologyFaqSchema(), ...(breadcrumb ? [breadcrumb] : [])];
   if (path.startsWith("/guide")) return [...baseSchemas, buildGuideFaqSchema(), ...(breadcrumb ? [breadcrumb] : [])];
-  if (path.startsWith("/goldbox") || path.startsWith("/deals/")) return [...baseSchemas, ...(breadcrumb ? [breadcrumb] : []), ...(pageData ?? [])];
+  if (path.startsWith("/goldbox") || path.startsWith("/deals/") || path === "/unit-price") return [...baseSchemas, ...(breadcrumb ? [breadcrumb] : []), ...(pageData ?? [])];
   return pageData?.length ? [...baseSchemas, ...pageData] : baseSchemas;
 }

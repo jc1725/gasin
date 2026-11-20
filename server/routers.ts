@@ -5,6 +5,7 @@ import { getMyGoodViaMonth, recordGoodViaFromRequest } from "./goodVia";
 import { donationLedgerInput, listPublicDonationEntries, saveDonationLedgerEntry } from "./give";
 import { listDonationLedgerEntries } from "./db";
 import { listDeals } from "./dealsQueries";
+import { listUnitPriceGroups } from "./unitPriceQueries";
 import {
   getProductCandidateForUser,
   getPublicServiceStats,
@@ -225,6 +226,7 @@ export const appRouter = router({
     deals: publicProcedure
       .input(z.object({ kind: z.enum(["drops", "low"]) }))
       .query(({ input }) => listDeals(input.kind)),
+    unitPrice: publicProcedure.query(() => listUnitPriceGroups()),
     product: publicProcedure
       .input(z.object({ productId: z.number().int().positive() }))
       .query(async ({ input }) => {

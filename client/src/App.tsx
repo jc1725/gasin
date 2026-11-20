@@ -23,6 +23,7 @@ const AdminMembers = lazy(() => import("./pages/AdminMembers"));
 const AdminGive = lazy(() => import("./pages/AdminGive"));
 const HotDeals = lazy(() => import("./pages/HotDeals"));
 const Deals = lazy(() => import("./pages/Deals"));
+const UnitPrice = lazy(() => import("./pages/UnitPrice"));
 
 const routeLoaders: Array<[RegExp, () => Promise<unknown>]> = [
   [/^\/favorites(?:\/|$)/, () => import("./pages/Favorites")],
@@ -35,6 +36,7 @@ const routeLoaders: Array<[RegExp, () => Promise<unknown>]> = [
   [/^\/admin(?:\/|$)/, () => import("./pages/AdminPrices")],
   [/^\/hot-deals(?:\/|$)/, () => import("./pages/HotDeals")],
   [/^\/deals\/(?:drops|low)$/, () => import("./pages/Deals")],
+  [/^\/unit-price$/, () => import("./pages/UnitPrice")],
 ];
 
 export async function preloadRouteForPath(pathname: string) {
@@ -54,6 +56,7 @@ function Router() {
         <Route path={"/give"} component={Give} />
         <Route path={"/hot-deals"} component={HotDeals} />
         <Route path={"/deals/:kind"} component={Deals} />
+        <Route path={"/unit-price"} component={UnitPrice} />
         <Route path={"/favorites"} component={Favorites} />
         <Route path={"/search"} component={SearchProducts} />
         <Route path={"/admin"} component={AdminPrices} />

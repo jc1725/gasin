@@ -12,6 +12,21 @@ const prefetch: SsrPrefetch = {
   listProducts: async () => [],
   hotDeals: async () => [],
   deals: async () => ({ kind: "drops", items: [], generatedAt: new Date(), indexable: false }),
+  unitPrice: async () => ({
+    groups: [
+      {
+        familyKey: "테스트 세제",
+        unitLabel: "100g",
+        savingPct: 20,
+        options: [
+          { productId: 11, name: "테스트 세제 2kg", variantLabel: "2kg", quantity: 1, currentPrice: 16000, unitPrice: 800, lastSeenAt: new Date("2026-11-20T00:00:00Z") },
+          { productId: 12, name: "테스트 세제 1kg", variantLabel: "1kg", quantity: 1, currentPrice: 10000, unitPrice: 1000, lastSeenAt: new Date("2026-11-20T00:00:00Z") },
+        ],
+      },
+    ],
+    generatedAt: new Date(),
+    indexable: false,
+  }),
   product: async () => null,
   collectedPriceHistory: async () => [],
   relatedVariants: async () => [],
@@ -29,6 +44,15 @@ describe("SSR 첫 렌더", () => {
     const result = await render("/deals/drops", prefetch);
     expect(result.html).not.toContain("페이지를 불러오는 중");
     expect(result.html).toContain("최근 7일 가격이 내린 상품");
+  });
+
+  it("단가 비교 페이지(/unit-price)도 첫 렌더에서 본문과 비교 표를 렌더하고, 그룹이 적으면 noindex를 낸다", async () => {
+    const result = await render("/unit-price", prefetch);
+    expect(result.html).not.toContain("페이지를 불러오는 중");
+    expect(result.html).toContain("용량별 단가 비교");
+    expect(result.html).toContain("테스트 세제");
+    expect(result.html).toContain('href="/product/11"');
+    expect(result.head.noindex).toBe(true);
   });
 
   it("홈 서버 렌더링 결과에 목록 페이지 링크가 포함된다", async () => {
