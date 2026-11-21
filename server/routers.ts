@@ -1,4 +1,4 @@
-import { COOKIE_NAME, isAdminEmail } from "@shared/const";
+import { COOKIE_NAME, isAdminEmail, isAdminUser } from "@shared/const";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { getMyGoodViaMonth, recordGoodViaFromRequest } from "./goodVia";
@@ -99,6 +99,7 @@ import { normalizeHotDealImageUrl } from "@shared/hotDealImage";
 import { describeUnusedSearchCleanup, runChunkedDeactivation } from "./unusedSearchCleanup";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { materializeSearchResult, searchCatalogSafely } from "./catalogSearch";
+import { consumeSearchAllowance, getSearchClientKey, isAutomatedSearchClient } from "./searchAbuseGuard";
 import { parseCoupangLink, resolveCoupangLink } from "./manualLink";
 import { parseCandidateCsv } from "./candidateCsv";
 import { parseUserConfirmedPriceCsv } from "./userConfirmedPriceCsv";
@@ -254,6 +255,16 @@ export const appRouter = router({
         // 방문자가 검색만 해도 상품이 통째로 영구 저장되어 가격 추적 목록이 무작위로
         // 계속 늘어나는 것을 막기 위해, 검색 자체는 더 이상 저장하지 않는다(persistNewResults: false).
         // 실제 추적은 사용자가 결과를 클릭해 열거나 찜할 때 materializeSearchResult에서 시작된다.
+        // 2026-11-21: 자동화 도구의 대량 검색이 쿠팡 API 몫과 검색 실패 이력을 채우던 문제(server/searchAbuseGuard.ts).
+        if (!isAdminUser(ctx.user)) {
+          if (isAutomatedSearchClient(ctx.req?.headers?.["user-agent"])) {
+            throw new TRPCError({ code: "FORBIDDEN", message: "자동화된 검색 요청은 지원하지 않습니다." });
+          }
+          const allowance = consumeSearchAllowance(getSearchClientKey(ctx.req, ctx.user?.id ?? null));
+          if (!allowance.allowed) {
+            throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: "검색이 너무 잦습니다. 잠시 후 다시 검색해 주세요." });
+          }
+        }
         const result = await searchCatalogSafely(input.keyword, input.limit, { forceExternal: input.refresh === true, persistNewResults: false });
         await recordSearchEvent({ userId: ctx.user?.id ?? null, keyword: input.keyword, resultSource: result.source, resultCount: result.products.length });
         return result;
