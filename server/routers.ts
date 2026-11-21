@@ -256,11 +256,13 @@ export const appRouter = router({
         // 계속 늘어나는 것을 막기 위해, 검색 자체는 더 이상 저장하지 않는다(persistNewResults: false).
         // 실제 추적은 사용자가 결과를 클릭해 열거나 찜할 때 materializeSearchResult에서 시작된다.
         // 2026-11-21: 자동화 도구의 대량 검색이 쿠팡 API 몫과 검색 실패 이력을 채우던 문제(server/searchAbuseGuard.ts).
+        // isAdminUser는 타입 가드라 아래 분기 안에서는 ctx.user가 never로 좁혀지므로 id를 먼저 꺼내 둔다.
+        const searchUserId = ctx.user?.id ?? null;
         if (!isAdminUser(ctx.user)) {
           if (isAutomatedSearchClient(ctx.req?.headers?.["user-agent"])) {
             throw new TRPCError({ code: "FORBIDDEN", message: "자동화된 검색 요청은 지원하지 않습니다." });
           }
-          const allowance = consumeSearchAllowance(getSearchClientKey(ctx.req, ctx.user?.id ?? null));
+          const allowance = consumeSearchAllowance(getSearchClientKey(ctx.req, searchUserId));
           if (!allowance.allowed) {
             throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: "검색이 너무 잦습니다. 잠시 후 다시 검색해 주세요." });
           }
