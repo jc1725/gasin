@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildPriceTrackingPerformanceMetrics } from "./db";
+import { buildPriceTrackingPerformanceMetrics, readRowsInPages } from "./db";
 
 describe("price tracking performance metrics", () => {
   const start = new Date("2026-09-01T00:00:00.000Z");
@@ -29,5 +29,30 @@ describe("price tracking performance metrics", () => {
     expect(result.summary).toMatchObject({ attempts: 0, uniqueProducts: 0, unresolvedProducts: 0, resolvedProducts: 0, avgApiCallsPerProduct: 0, avgResolutionHours: null, successRate: 0, collectorResolutionRate: 0 });
     expect(result.daily).toHaveLength(1);
     expect(result.daily[0].successRate).toBeNull();
+  });
+});
+
+// 2026-11-25: 7일 통계가 앞의 20,000행에서 잘려 최근 날짜가 0으로 나오던 문제.
+describe("price tracking metrics paging", () => {
+  const table = Array.from({ length: 45 }, (_, index) => ({ id: index + 1 }));
+  const fetchPage = async (afterId: number, pageSize: number) => table.filter(row => row.id > afterId).slice(0, pageSize);
+
+  it("reads every row across pages instead of stopping at the first page", async () => {
+    const result = await readRowsInPages(fetchPage, 20, 1000);
+    expect(result.rows).toHaveLength(45);
+    expect(result.rows[44]!.id).toBe(45);
+    expect(result.truncated).toBe(false);
+  });
+
+  it("stops at the row cap and reports that the statistics are truncated", async () => {
+    const result = await readRowsInPages(fetchPage, 20, 30);
+    expect(result.rows).toHaveLength(30);
+    expect(result.truncated).toBe(true);
+  });
+
+  it("does not report truncation when the last page is exactly full", async () => {
+    const result = await readRowsInPages(async (afterId, pageSize) => table.slice(0, 40).filter(row => row.id > afterId).slice(0, pageSize), 20, 1000);
+    expect(result.rows).toHaveLength(40);
+    expect(result.truncated).toBe(false);
   });
 });

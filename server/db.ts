@@ -3797,13 +3797,42 @@ export async function recordPriceTrackingMetric(input: {
   }
 }
 
+/**
+ * 2026-11-25: 예전에는 기간 안의 기록을 오래된 순으로 20,000행만 읽었다. 하루 기록이 1.4~1.6만 행이라
+ * 7일 통계는 앞의 1~2일치만 담기고 최근 날짜는 0으로 나왔다. 이제 20,000행씩 id 순으로 이어서 읽고,
+ * 그래도 상한(PRICE_TRACKING_METRICS_MAX_ROWS)을 넘으면 truncated로 알려 화면이 잘린 통계임을 알 수 있게 한다.
+ */
+export const PRICE_TRACKING_METRICS_PAGE_SIZE = 20_000;
+export const PRICE_TRACKING_METRICS_MAX_ROWS = 300_000;
+
+export async function readRowsInPages<T extends { id: number }>(
+  fetchPage: (afterId: number, pageSize: number) => Promise<T[]>,
+  pageSize = PRICE_TRACKING_METRICS_PAGE_SIZE,
+  maxRows = PRICE_TRACKING_METRICS_MAX_ROWS,
+) {
+  const rows: T[] = [];
+  let afterId = 0;
+  while (rows.length < maxRows) {
+    const page = await fetchPage(afterId, Math.min(pageSize, maxRows - rows.length));
+    for (const row of page) rows.push(row);
+    if (page.length < Math.min(pageSize, maxRows - rows.length + page.length)) return { rows, truncated: false };
+    afterId = page[page.length - 1]!.id;
+  }
+  return { rows, truncated: true };
+}
+
 export async function getPriceTrackingPerformanceMetrics(days = 7, now = new Date()) {
   const db = await getDb();
   const safeDays = Math.min(Math.max(Math.round(days), 1), 30);
   const windowStartedAt = new Date(now.getTime() - safeDays * 24 * 60 * 60 * 1000);
-  if (!db) return buildPriceTrackingPerformanceMetrics([], windowStartedAt, now);
-  const rows = await db.select({ productId: priceTrackingMetrics.productId, source: priceTrackingMetrics.source, outcome: priceTrackingMetrics.outcome, apiCalls: priceTrackingMetrics.apiCalls, durationMs: priceTrackingMetrics.durationMs, occurredAt: priceTrackingMetrics.occurredAt }).from(priceTrackingMetrics).where(and(gte(priceTrackingMetrics.occurredAt, windowStartedAt), lte(priceTrackingMetrics.occurredAt, now))).orderBy(asc(priceTrackingMetrics.occurredAt)).limit(20_000);
-  return buildPriceTrackingPerformanceMetrics(rows, windowStartedAt, now);
+  if (!db) return { ...buildPriceTrackingPerformanceMetrics([], windowStartedAt, now), truncated: false };
+  const { rows, truncated } = await readRowsInPages((afterId, pageSize) => db
+    .select({ id: priceTrackingMetrics.id, productId: priceTrackingMetrics.productId, source: priceTrackingMetrics.source, outcome: priceTrackingMetrics.outcome, apiCalls: priceTrackingMetrics.apiCalls, durationMs: priceTrackingMetrics.durationMs, occurredAt: priceTrackingMetrics.occurredAt })
+    .from(priceTrackingMetrics)
+    .where(and(gte(priceTrackingMetrics.occurredAt, windowStartedAt), lte(priceTrackingMetrics.occurredAt, now), gt(priceTrackingMetrics.id, afterId)))
+    .orderBy(asc(priceTrackingMetrics.id))
+    .limit(pageSize));
+  return { ...buildPriceTrackingPerformanceMetrics(rows, windowStartedAt, now), truncated };
 }
 
 /**
