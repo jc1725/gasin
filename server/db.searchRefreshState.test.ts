@@ -79,7 +79,8 @@ describe("deferSearchProductRefresh", () => {
       refreshState: "fresh",
       deepLinkStatus: "ready",
       lastRefreshAttemptAt: attemptedAt,
-      nextRefreshAt: null,
+      // 2026-11-25: 바로 다시 대기열에 들어가 같은 상품을 반복 검색하지 않도록 다음 재확인을 미룬다.
+      nextRefreshAt: new Date(attemptedAt.getTime() + 24 * 60 * 60 * 1000),
     });
     expect(mocks.payloads[0]).not.toHaveProperty("deepLinkUrl", null);
   });
@@ -141,5 +142,21 @@ describe("deferSearchProductRefresh", () => {
     });
     expect(mocks.payloads[0]).toHaveProperty("lastRefreshReason", expect.stringContaining("keyword maximum length is 50"));
     expect(mocks.payloads[0]).not.toHaveProperty("deepLinkStatus");
+  });
+  // 2026-11-25: 오래 확인되지 않은 상품일수록 수집기 유지 후 재확인 간격을 늘린다(미일치와 같은 1일 → 3일 → 7일).
+  it("backs off the next official recheck for a collector-trusted SKU that has not been seen for a long time", async () => {
+    const { recordDeferredSearchRecheckMiss } = await import("./db");
+    const attemptedAt = new Date("2026-11-25T03:00:00.000Z");
+    mocks.select.mockReturnValueOnce({ from: () => ({ where: () => ({ limit: vi.fn().mockResolvedValue([{
+      inStock: true,
+      wowMemberPrice: 12900,
+      wowMemberPriceObservedAt: new Date(attemptedAt.getTime() - 12 * 24 * 60 * 60 * 1000),
+      deepLinkStatus: "ready",
+      deepLinkUrl: "https://link.coupang.com/a/exact-sku",
+      lastSeenAt: new Date(attemptedAt.getTime() - 10 * 24 * 60 * 60 * 1000),
+    }]) }) }) });
+
+    await expect(recordDeferredSearchRecheckMiss(11, "정확 SKU 미일치", attemptedAt)).resolves.toBe("collector_trusted");
+    expect((mocks.payloads[0] as { nextRefreshAt: Date }).nextRefreshAt.getTime()).toBe(attemptedAt.getTime() + 3 * 24 * 60 * 60 * 1000);
   });
 });

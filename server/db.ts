@@ -2738,7 +2738,12 @@ export async function recordDeferredSearchRecheckMiss(productId: number, reason:
       refreshState: "fresh",
       lastRefreshReason: `${reason} 다만 가신 수집기가 같은 정확 옵션 SKU를 최근 관측해 구매 경로와 가격 추적을 유지합니다.`,
       lastRefreshAttemptAt: now,
-      nextRefreshAt: null,
+      // 2026-11-25: 예전에는 null로 두었다. 이 경로는 lastSeenAt을 갱신하지 않으므로 3분마다 도는
+      // 대기열 정리(deferSearchProductRefresh)가 곧바로 다시 "지금 재확인"으로 넣었고, 같은 상품을
+      // 하루 평균 3.7번씩 다시 검색했다(11/24 24시간: 재확인 15,963회 중 10,800회가 이 결과, 대상은
+      // 4,369개뿐). 공식 검색이 못 찾은 SKU라 곧바로 다시 찾을 가능성도 낮으므로, 미일치와 같은
+      // 간격(1일 → 3일 → 7일)으로 미룬다. 수집기 관측 가격은 그대로 유지된다.
+      nextRefreshAt: new Date(now.getTime() + getUnmatchedRetryDelayMs(product.lastSeenAt ?? null, now)),
       deepLinkStatus: hasStoredDeepLink ? "ready" : "pending",
       ...(hasStoredDeepLink ? { deepLinkFailureReason: null } : { deepLinkUrl: null, deepLinkFailureReason: null, deepLinkUpdatedAt: now }),
     }).where(eq(products.id, productId));
