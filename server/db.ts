@@ -2624,9 +2624,19 @@ export async function getStaleTrackedProductsForExtensionRevisit(limit: number, 
       // 2026-10-01: 로켓 계열이거나 찜한 상품만 방문한다. 방문은 곧 가격 갱신이다.
       refreshEligibleCondition(),
     ))
-    // 2026-09-29: 수집기 관측만이 해소 경로인 상품(awaiting_collection)을 먼저 방문한다.
-    // 그다음은 기존대로 가장 오래 확인되지 않은 순.
-    .orderBy(sql`CASE WHEN ${products.refreshState} = 'awaiting_collection' THEN 0 ELSE 1 END`, asc(products.lastSeenAt))
+    // 2026-11-26 방문 순서(인환님 결정): ① 찜한 상품 → ② 옵션 미확인 상품(옵션·용량·수량·포장
+    // 단위가 모두 비어 있음) → ③ 수집기 확인 대기(awaiting_collection, 공식 검색으로 정확 SKU를
+    // 못 찾은 상품) → ④ 나머지. 같은 단계 안에서는 가장 오래 확인되지 않은 순.
+    // (2026-09-29부터는 ③이 맨 앞이었다.)
+    .orderBy(
+      sql`CASE
+        WHEN EXISTS (SELECT 1 FROM ${favorites} WHERE ${favorites.productId} = ${products.id}) THEN 0
+        WHEN (${products.variantLabel} IS NULL OR ${products.variantLabel} = '가신 수집기 상품')
+          AND ${products.unitLabel} IS NULL AND ${products.quantity} IS NULL AND ${products.packSize} IS NULL THEN 1
+        WHEN ${products.refreshState} = 'awaiting_collection' THEN 2
+        ELSE 3 END`,
+      asc(products.lastSeenAt),
+    )
     // 2026-09-18: 카테고리 제외 필터가 생기기 전에 저장된 trip.coupang.com(쿠팡
     // 트래블) 잔여 행이 있으면, 이 후보 목록을 통해 수집기가 매번 헛방문(탭만
     // 열고 20초 타임아웃)을 반복하게 된다. 여기서도 한 번 더 걸러서 그런 잔여
