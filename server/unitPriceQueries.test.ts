@@ -7,6 +7,7 @@ import {
   getIndexableUnitPricePaths,
   listUnitPriceGroups,
   resetUnitPriceCacheForTest,
+  UNIT_PRICE_INDEX_ENABLED,
   type UnitPriceProductRow,
 } from "./unitPriceQueries";
 
@@ -77,14 +78,34 @@ describe("buildUnitPriceGroups", () => {
     ).toEqual([]);
   });
 
-  it("차이가 60%를 넘으면 용량 오인식으로 보고 제외한다(경계값 포함)", () => {
+  it("차이가 35%를 넘으면 용량 오인식으로 보고 제외한다(경계값 포함)", () => {
     const build = (bigPrice: number) =>
       buildUnitPriceGroups([
         row({ variantLabel: "1kg", currentPrice: 10000, familyVariantKey: "a" }),
         row({ variantLabel: "2kg", currentPrice: bigPrice, familyVariantKey: "b" }),
       ]);
-    expect(build(8000)).toHaveLength(1); // 400 vs 1000 → 60%
-    expect(build(7900)).toEqual([]); // 395 vs 1000 → 60.5%
+    expect(build(13000)).toHaveLength(1); // 650 vs 1000 → 35%
+    expect(build(12900)).toEqual([]); // 645 vs 1000 → 35.5%
+  });
+
+  it("서로 다른 구성의 단가가 정확히 같은 그룹은 통째로 제외한다", () => {
+    const groups = buildUnitPriceGroups([
+      row({ variantLabel: "1kg", currentPrice: 10000, familyVariantKey: "a" }),
+      row({ variantLabel: "2kg", currentPrice: 20000, familyVariantKey: "b" }), // 1,000원으로 a와 같음
+      row({ variantLabel: "4kg", currentPrice: 32000, familyVariantKey: "c" }), // 800원
+    ]);
+    expect(groups).toEqual([]);
+  });
+
+  it("세트·기획·리필·증정 상품군은 제외하고 일반 상품군은 남긴다", () => {
+    const pair = (familyKey: string) => [
+      row({ familyKey, variantLabel: "1kg", currentPrice: 10000, familyVariantKey: `${familyKey}-a` }),
+      row({ familyKey, variantLabel: "2kg", currentPrice: 16000, familyVariantKey: `${familyKey}-b` }),
+    ];
+    for (const familyKey of ["샴푸 2종 세트", "크림 본품+리필", "기획 세제", "사은품 증정 물티슈", "세제 set"]) {
+      expect(buildUnitPriceGroups(pair(familyKey))).toEqual([]);
+    }
+    expect(buildUnitPriceGroups(pair("액체세제"))).toHaveLength(1);
   });
 
   it("단가 기준(unitLabel)이 다른 행끼리는 비교하지 않는다", () => {
@@ -128,6 +149,12 @@ describe("buildUnitPriceGroups", () => {
     expect(groups.map(group => group.familyKey)).toEqual(["물", "쌀"]);
     expect(groups[0]!.options).toHaveLength(6);
     expect(groups[0]!.options[0]!.unitPrice).toBeLessThan(groups[0]!.options[5]!.unitPrice);
+  });
+});
+
+describe("색인 스위치", () => {
+  it("UNIT_PRICE_INDEX_ENABLED가 꺼져 있으면 그룹이 충분해도 indexable=false다", () => {
+    expect(UNIT_PRICE_INDEX_ENABLED).toBe(false);
   });
 });
 

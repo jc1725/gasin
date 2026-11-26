@@ -65,8 +65,21 @@ export const UNIT_PRICE_MAX_OPTIONS_PER_GROUP = 6;
 export const UNIT_PRICE_MIN_INDEXABLE_GROUPS = 10;
 /** 단가 차이가 10% 미만이면 "비교할 만한 차이"로 보지 않는다. */
 export const UNIT_PRICE_MIN_SAVING_PCT = 10;
-/** 60% 초과는 용량 오인식(세트 용량 누락 등) 가능성이 커서 뺀다. deals 상한과 같은 기준. */
-export const UNIT_PRICE_MAX_SAVING_PCT = 60;
+/**
+ * 35% 초과는 용량·수량 오인식(세트 용량 누락, 판매자별 수량 표기 차이 등) 가능성이 커서 뺀다.
+ * 2026-11 실측: 상한 60%일 때 노출 40개 그룹이 모두 44~60%였고 그중 다수가 오인식이었다.
+ */
+export const UNIT_PRICE_MAX_SAVING_PCT = 35;
+/**
+ * 세트·기획·리필·증정 등 구성이 섞이는 상품군은 용량만으로 단가를 비교할 수 없어 뺀다.
+ * 상품군(familyKey)에만 적용한다. 개별 옵션명의 "2개 세트" 같은 다중팩 표기는 정상 구성이다.
+ */
+export const UNIT_PRICE_BUNDLE_FAMILY_PATTERN = /세트|기획|리필|증정|본품|패키지|\+|\bset\b/i;
+/**
+ * 검증 전까지 색인하지 않는다. 라이브 데이터를 눈으로 확인한 뒤 true로 바꿔 배포한다.
+ * false여도 페이지 자체는 열리고, noindex 메타가 붙으며 sitemap에서 빠진다.
+ */
+export const UNIT_PRICE_INDEX_ENABLED = false;
 
 const roundOne = (value: number) => Math.round(value * 10) / 10;
 
@@ -103,7 +116,10 @@ export function buildUnitPriceGroups(rows: UnitPriceProductRow[]): UnitPriceGrou
   const groups: UnitPriceGroup[] = [];
   for (const group of Array.from(byGroup.values())) {
     if (group.options.length < 2) continue;
+    if (UNIT_PRICE_BUNDLE_FAMILY_PATTERN.test(group.familyKey)) continue;
     const options = group.options.sort((left, right) => left.unitPrice - right.unitPrice || left.currentPrice - right.currentPrice);
+    // 서로 다른 구성의 단가가 정확히 같으면 수량 표기·가격 짝이 어긋난 행이 섞였을 수 있어 그룹째 뺀다.
+    if (new Set(options.map(option => option.unitPrice)).size !== options.length) continue;
     const best = options[0]!.unitPrice;
     const worst = options[options.length - 1]!.unitPrice;
     const savingPct = roundOne(((worst - best) / worst) * 100);
@@ -168,7 +184,7 @@ async function getSnapshot(): Promise<Snapshot | null> {
 export async function listUnitPriceGroups(): Promise<UnitPriceResult> {
   const snapshot = await getSnapshot();
   const groups = snapshot?.groups ?? [];
-  return { groups, generatedAt: snapshot?.generatedAt ?? new Date(), indexable: groups.length >= UNIT_PRICE_MIN_INDEXABLE_GROUPS };
+  return { groups, generatedAt: snapshot?.generatedAt ?? new Date(), indexable: UNIT_PRICE_INDEX_ENABLED && groups.length >= UNIT_PRICE_MIN_INDEXABLE_GROUPS };
 }
 
 /** sitemap에는 그룹이 충분해 색인 가능한 때만 넣는다. 조회 실패 시 빈 배열. */
